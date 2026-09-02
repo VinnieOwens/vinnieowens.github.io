@@ -652,6 +652,35 @@ h1 {
 .run-roster div { padding: 2px 0; }
 .run-roster b { color: var(--text); font-weight: 600; }
 
+.run-share-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px 10px;
+}
+
+.run-share-btn {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 0.78rem;
+  background: transparent;
+  color: var(--epic);
+  border: 1.5px solid var(--epic);
+  border-radius: 999px;
+  padding: 4px 14px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.run-share-btn:hover {
+  background: rgba(163,53,238,0.14);
+}
+
+.run-share-status {
+  font-size: 0.72rem;
+  color: var(--uncommon);
+}
+
 /* ---- Final roster screen ---- */
 .hidden { display: none !important; }
 
@@ -1154,6 +1183,7 @@ function renderSidebar() {
       return `<div>${ROLE_NAMES[role]}: <b style="color:${TIER_VARS[p.tier].color}">${p.player_name}</b></div>`;
     }).join('');
 
+    const shareStatusId = `run-share-status-${idx}`;
     details.innerHTML = `
       <summary>
         <span class="run-rank">${idx + 1}</span>
@@ -1161,7 +1191,18 @@ function renderSidebar() {
         <span class="run-score">${r.score.toFixed(1)}</span>
       </summary>
       <div class="run-roster">${rosterLines}</div>
+      <div class="run-share-row">
+        <button class="run-share-btn">Share</button>
+        <span class="run-share-status" id="${shareStatusId}"></span>
+      </div>
     `;
+
+    details.querySelector('.run-share-btn').addEventListener('click', (e) => {
+      e.preventDefault(); // don't toggle the <details> open/closed
+      const statusEl = details.querySelector(`#${shareStatusId}`);
+      shareRoster(r.roster, r.score, r.rating, statusEl);
+    });
+
     list.appendChild(details);
     if (isLatest) scrollTarget = details;
   });
@@ -1215,7 +1256,7 @@ function fitFontSize(ctx, text, maxWidth, startSize, weight, family) {
   return size;
 }
 
-async function buildShareImage() {
+async function buildShareImage(rosterObj, total, rating) {
   if (document.fonts && document.fonts.ready) await document.fonts.ready;
 
   const W = 1200, H = 760;
@@ -1237,10 +1278,6 @@ async function buildShareImage() {
   ctx.fillStyle = '#f0ede8';
   ctx.font = "700 66px 'Rajdhani', sans-serif";
   ctx.fillText('82 and d0ta', W / 2, 92);
-
-  // score + rating
-  const total = ROLE_ORDER.reduce((s, r) => s + roster[r].score, 0);
-  const rating = getRating(total);
 
   ctx.fillStyle = '#948da3';
   ctx.font = "600 18px 'Rajdhani', sans-serif";
@@ -1264,7 +1301,7 @@ async function buildShareImage() {
 
   for (let i = 0; i < ROLE_ORDER.length; i++) {
     const role = ROLE_ORDER[i];
-    const p = roster[role];
+    const p = rosterObj[role];
     const tierHex = TIER_HEX[p.tier];
     const x = marginX + i * (cardW + gap);
     const cx = x + cardW / 2;
@@ -1323,13 +1360,12 @@ async function buildShareImage() {
   return canvas;
 }
 
-document.getElementById('shareBtn').addEventListener('click', async () => {
-  const statusEl = document.getElementById('shareStatus');
+async function shareRoster(rosterObj, total, rating, statusEl) {
   statusEl.textContent = 'Building image...';
 
   let canvas;
   try {
-    canvas = await buildShareImage();
+    canvas = await buildShareImage(rosterObj, total, rating);
   } catch (err) {
     statusEl.textContent = "Couldn't build image.";
     setTimeout(() => { statusEl.textContent = ''; }, 3000);
@@ -1364,6 +1400,12 @@ document.getElementById('shareBtn').addEventListener('click', async () => {
     }
     setTimeout(() => { statusEl.textContent = ''; }, 4000);
   }, 'image/png');
+}
+
+document.getElementById('shareBtn').addEventListener('click', () => {
+  const total = ROLE_ORDER.reduce((s, r) => s + roster[r].score, 0);
+  const rating = getRating(total);
+  shareRoster(roster, total, rating, document.getElementById('shareStatus'));
 });
 
 // ---- Tabs ----
