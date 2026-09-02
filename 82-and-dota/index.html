@@ -258,6 +258,33 @@ h1 {
   color: var(--text-muted);
 }
 
+.db-role-filters {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.role-filter-btn {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 600;
+  font-size: 0.85rem;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1.5px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 16px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.role-filter-btn.active {
+  color: var(--text);
+  border-color: var(--epic);
+  background: rgba(163,53,238,0.12);
+}
+
 .db-tier-section {
   margin-bottom: 30px;
 }
@@ -782,6 +809,14 @@ footer {
 <div class="wrap hidden" id="dbTab">
   <h1>Player Database</h1>
   <input type="text" id="dbSearch" class="db-search" placeholder="Search players...">
+  <div class="db-role-filters" id="dbRoleFilters">
+    <button class="role-filter-btn active" data-role="all">All</button>
+    <button class="role-filter-btn" data-role="1">Carry</button>
+    <button class="role-filter-btn" data-role="2">Mid</button>
+    <button class="role-filter-btn" data-role="3">Offlane</button>
+    <button class="role-filter-btn" data-role="4">Soft Support</button>
+    <button class="role-filter-btn" data-role="5">Hard Support</button>
+  </div>
   <div id="playerDatabase"></div>
   <footer>Player data and results sourced from Liquipedia, TI2011&ndash;TI2026.</footer>
 </div>
@@ -1527,6 +1562,7 @@ function buildPlayerDatabase() {
       const details = document.createElement('details');
       details.className = 'db-player';
       details.dataset.name = player.player_name.toLowerCase();
+      details.dataset.role = player.role;
       details.style.setProperty('--tier-color', TIER_VARS[player.tier].color);
       details.innerHTML = `
         <summary>
@@ -1564,18 +1600,32 @@ function buildPlayerDatabase() {
 }
 buildPlayerDatabase();
 
-document.getElementById('dbSearch').addEventListener('input', (e) => {
-  const query = e.target.value.trim().toLowerCase();
+let dbActiveRole = 'all';
+
+function applyDbFilters() {
+  const query = document.getElementById('dbSearch').value.trim().toLowerCase();
   document.querySelectorAll('.db-tier-section').forEach(section => {
     let visibleCount = 0;
     section.querySelectorAll('.db-player').forEach(row => {
-      const match = row.dataset.name.includes(query);
+      const nameMatch = row.dataset.name.includes(query);
+      const roleMatch = dbActiveRole === 'all' || row.dataset.role === dbActiveRole;
+      const match = nameMatch && roleMatch;
       row.classList.toggle('hidden', !match);
       if (match) visibleCount++;
     });
     section.classList.toggle('hidden', visibleCount === 0);
     const countEl = section.querySelector('.db-tier-count');
     if (countEl) countEl.textContent = `(${visibleCount})`;
+  });
+}
+
+document.getElementById('dbSearch').addEventListener('input', applyDbFilters);
+
+document.querySelectorAll('.role-filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    dbActiveRole = btn.dataset.role;
+    document.querySelectorAll('.role-filter-btn').forEach(b => b.classList.toggle('active', b === btn));
+    applyDbFilters();
   });
 });
 
