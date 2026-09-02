@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>All-Time Dota Draft</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&display=swap');
 
@@ -673,16 +672,6 @@ h1 {
   color: transparent;
 }
 
-/* html2canvas (used by the Share button) can't render gradient-clipped
-   text -- swap to a plain solid color for the brief moment of capture,
-   then swap back. The normal on-page look is unaffected. */
-#shareCapture.capturing .score-number {
-  background: none;
-  -webkit-background-clip: initial;
-  background-clip: initial;
-  color: var(--legendary);
-}
-
 .rating-label {
   font-family: 'Rajdhani', sans-serif;
   font-weight: 700;
@@ -708,7 +697,7 @@ h1 {
   border-radius: 14px;
   padding: 20px 16px 18px;
   min-height: 230px;
-  min-width: 200px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -897,8 +886,7 @@ const TIER_VARS = {
 };
 
 // Plain hex versions of the tier colors (not CSS var() references) --
-// needed for JS-side color math, since html2canvas (used by the Share
-// button) can't understand modern CSS like color-mix() or var().
+// needed for JS-side color math when drawing the share-card canvas.
 const TIER_HEX = {
   Legendary: "#ff8000", Epic: "#a335ee", Rare: "#0092e4",
   Uncommon: "#34d167", Common: "#b0abb8", Unranked: "#7c8591",
@@ -1140,44 +1128,171 @@ function animateNumber(el, target) {
 
 document.getElementById('restartBtn').addEventListener('click', resetGame);
 
+// ---- Custom share card (drawn from scratch, no DOM screenshotting) ----
+function drawRoundedRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function loadImageSafe(src) {
+  return new Promise((resolve) => {
+    if (!src) { resolve(null); return; }
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+function fitFontSize(ctx, text, maxWidth, startSize, weight, family) {
+  let size = startSize;
+  ctx.font = `${weight} ${size}px '${family}', sans-serif`;
+  while (ctx.measureText(text).width > maxWidth && size > 11) {
+    size -= 1;
+    ctx.font = `${weight} ${size}px '${family}', sans-serif`;
+  }
+  return size;
+}
+
+async function buildShareImage() {
+  if (document.fonts && document.fonts.ready) await document.fonts.ready;
+
+  const W = 1200, H = 760;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  // background
+  const bgGrad = ctx.createRadialGradient(W / 2, 0, 0, W / 2, 0, W * 0.85);
+  bgGrad.addColorStop(0, '#1c1830');
+  bgGrad.addColorStop(1, '#0d0b16');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = 'center';
+
+  // title
+  ctx.fillStyle = '#f0ede8';
+  ctx.font = "700 66px 'Rajdhani', sans-serif";
+  ctx.fillText('82 and d0ta', W / 2, 92);
+
+  // score + rating
+  const total = ROLE_ORDER.reduce((s, r) => s + roster[r].score, 0);
+  const rating = getRating(total);
+
+  ctx.fillStyle = '#948da3';
+  ctx.font = "600 18px 'Rajdhani', sans-serif";
+  ctx.fillText('TEAM SCORE', W / 2, 138);
+
+  const scoreGrad = ctx.createLinearGradient(W / 2 - 180, 175, W / 2 + 180, 240);
+  scoreGrad.addColorStop(0, '#ff8000');
+  scoreGrad.addColorStop(1, '#a335ee');
+  ctx.fillStyle = scoreGrad;
+  ctx.font = "700 92px 'Rajdhani', sans-serif";
+  ctx.fillText(total.toFixed(1), W / 2, 235);
+
+  ctx.fillStyle = '#ff8000';
+  ctx.font = "700 28px 'Rajdhani', sans-serif";
+  ctx.fillText(rating, W / 2, 274);
+
+  // player cards
+  const marginX = 40, gap = 16;
+  const cardY = 310, cardH = 340;
+  const cardW = (W - marginX * 2 - gap * 4) / 5;
+
+  for (let i = 0; i < ROLE_ORDER.length; i++) {
+    const role = ROLE_ORDER[i];
+    const p = roster[role];
+    const tierHex = TIER_HEX[p.tier];
+    const x = marginX + i * (cardW + gap);
+    const cx = x + cardW / 2;
+
+    const bg = mixHexColors(tierHex, '#f3f0f8', 0.32);
+    ctx.fillStyle = bg;
+    drawRoundedRect(ctx, x, cardY, cardW, cardH, 14);
+    ctx.fill();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = tierHex;
+    drawRoundedRect(ctx, x, cardY, cardW, cardH, 14);
+    ctx.stroke();
+
+    ctx.fillStyle = tierHex;
+    ctx.font = "700 14px 'Rajdhani', sans-serif";
+    ctx.fillText(p.tier.toUpperCase(), cx, cardY + 32);
+
+    // team logo(s) -- up to 3 across, matching the in-game logo strip
+    const logos = [...p.teams].sort()
+      .map(t => (p.team_logos && p.team_logos[t]) || '')
+      .filter(Boolean)
+      .slice(0, 3);
+    const images = await Promise.all(logos.map(loadImageSafe));
+    const validImages = images.filter(Boolean);
+    if (validImages.length) {
+      const logoSize = 44, logoGap = 8;
+      const totalW = validImages.length * logoSize + (validImages.length - 1) * logoGap;
+      let lx = cx - totalW / 2;
+      const ly = cardY + 46;
+      for (const img of validImages) {
+        ctx.drawImage(img, lx, ly, logoSize, logoSize);
+        lx += logoSize + logoGap;
+      }
+    }
+
+    // player name (shrinks to fit if needed)
+    const nameMaxWidth = cardW - 20;
+    const nameSize = fitFontSize(ctx, p.player_name, nameMaxWidth, 24, 700, 'Rajdhani');
+    ctx.fillStyle = '#211c30';
+    ctx.font = `700 ${nameSize}px 'Rajdhani', sans-serif`;
+    ctx.fillText(p.player_name, cx, cardY + 170);
+
+    ctx.fillStyle = '#5c5568';
+    ctx.font = "500 16px 'Inter', sans-serif";
+    ctx.fillText(ROLE_NAMES[role], cx, cardY + 198);
+  }
+
+  // footer link back to the site
+  const url = window.location.origin + window.location.pathname;
+  const footerText = `Draft your own team \u2192 ${url}`;
+  ctx.fillStyle = '#a335ee';
+  const footerSize = fitFontSize(ctx, footerText, W - 60, 28, 700, 'Rajdhani');
+  ctx.font = `700 ${footerSize}px 'Rajdhani', sans-serif`;
+  ctx.fillText(footerText, W / 2, H - 30);
+
+  return canvas;
+}
+
 document.getElementById('shareBtn').addEventListener('click', async () => {
   const statusEl = document.getElementById('shareStatus');
-  const target = document.getElementById('shareCapture');
-  statusEl.textContent = 'Capturing...';
-  target.classList.add('capturing');
+  statusEl.textContent = 'Building image...';
 
   let canvas;
   try {
-    canvas = await html2canvas(target, {
-      backgroundColor: '#14111f',
-      scale: 2,
-      useCORS: true,
-    });
+    canvas = await buildShareImage();
   } catch (err) {
-    statusEl.textContent = "Couldn't capture image.";
+    statusEl.textContent = "Couldn't build image.";
     setTimeout(() => { statusEl.textContent = ''; }, 3000);
-    target.classList.remove('capturing');
     return;
   }
-  target.classList.remove('capturing');
 
   canvas.toBlob(async (blob) => {
     if (!blob) {
-      statusEl.textContent = "Couldn't capture image.";
+      statusEl.textContent = "Couldn't build image.";
       setTimeout(() => { statusEl.textContent = ''; }, 3000);
       return;
     }
 
-    // Try copying the image straight to the clipboard first.
     try {
       await navigator.clipboard.write([
         new ClipboardItem({ 'image/png': blob })
       ]);
       statusEl.textContent = 'Copied to clipboard!';
     } catch (err) {
-      // Clipboard image write isn't supported here (older browser, or
-      // running from a local file instead of https) -- fall back to a
-      // plain download instead.
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
