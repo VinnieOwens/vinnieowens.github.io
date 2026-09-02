@@ -924,7 +924,27 @@ function getRating(score) {
   return label;
 }
 
-let pastRuns = []; // {score, rating, roster}, this browser session only
+const RUNS_STORAGE_KEY = 'dotaRosterPastRuns';
+
+function loadRunsFromStorage() {
+  try {
+    const raw = localStorage.getItem(RUNS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (err) {
+    return []; // private browsing, storage disabled, or corrupted data
+  }
+}
+
+function saveRunsToStorage() {
+  try {
+    localStorage.setItem(RUNS_STORAGE_KEY, JSON.stringify(pastRuns));
+  } catch (err) {
+    // storage full, disabled, or private browsing -- fail silently,
+    // the game still works fine without persistence
+  }
+}
+
+let pastRuns = loadRunsFromStorage(); // {score, rating, roster}, persisted across visits
 let latestRun = null; // reference to whichever run was just completed
 
 let pools = {};       // role -> remaining players
@@ -1073,6 +1093,7 @@ function recordRun(score, rating) {
   const run = { score, rating, roster: { ...roster } };
   pastRuns.push(run);
   latestRun = run;
+  saveRunsToStorage();
   renderSidebar();
 }
 
@@ -1560,6 +1581,7 @@ document.getElementById('dbSearch').addEventListener('input', (e) => {
 
 showTab('game');
 resetGame();
+renderSidebar(); // show any runs loaded from a previous visit right away
 </script>
 </body>
 </html>
