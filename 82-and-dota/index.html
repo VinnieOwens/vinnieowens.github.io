@@ -1288,8 +1288,11 @@ document.getElementById('shareBtn').addEventListener('click', async () => {
     }
 
     try {
+      const shareUrl = window.location.origin + window.location.pathname;
+      const shareText = `Try 82 and d0ta for yourself: ${shareUrl}`;
+      const textBlob = new Blob([shareText], { type: 'text/plain' });
       await navigator.clipboard.write([
-        new ClipboardItem({ 'image/png': blob })
+        new ClipboardItem({ 'image/png': blob, 'text/plain': textBlob })
       ]);
       statusEl.textContent = 'Copied to clipboard!';
     } catch (err) {
