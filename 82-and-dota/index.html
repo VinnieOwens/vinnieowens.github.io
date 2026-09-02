@@ -673,6 +673,16 @@ h1 {
   color: transparent;
 }
 
+/* html2canvas (used by the Share button) can't render gradient-clipped
+   text -- swap to a plain solid color for the brief moment of capture,
+   then swap back. The normal on-page look is unaffected. */
+#shareCapture.capturing .score-number {
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  color: var(--legendary);
+}
+
 .rating-label {
   font-family: 'Rajdhani', sans-serif;
   font-weight: 700;
@@ -886,6 +896,26 @@ const TIER_VARS = {
   Unranked: { color: "#7c8591", glow: "rgba(124,133,145,0.25)" },
 };
 
+// Plain hex versions of the tier colors (not CSS var() references) --
+// needed for JS-side color math, since html2canvas (used by the Share
+// button) can't understand modern CSS like color-mix() or var().
+const TIER_HEX = {
+  Legendary: "#ff8000", Epic: "#a335ee", Rare: "#0092e4",
+  Uncommon: "#34d167", Common: "#b0abb8", Unranked: "#7c8591",
+};
+
+function hexToRgb(hex) {
+  hex = hex.replace('#', '');
+  return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
+}
+
+function mixHexColors(hexA, hexB, pctA) {
+  const [r1, g1, b1] = hexToRgb(hexA);
+  const [r2, g2, b2] = hexToRgb(hexB);
+  const mix = (a, b) => Math.round(a * pctA + b * (1 - pctA));
+  return `rgb(${mix(r1, r2)}, ${mix(g1, g2)}, ${mix(b1, b2)})`;
+}
+
 const RATING_TIERS = [
   [0,   "How Did You Qualify?"],
   [345, "Group Stage Dropout"],
@@ -1043,6 +1073,7 @@ function showFinal() {
     card.className = 'roster-card';
     card.style.setProperty('--tier-color', tv.color);
     card.style.setProperty('--tier-glow', tv.glow);
+    card.style.backgroundColor = mixHexColors(TIER_HEX[p.tier], '#f3f0f8', 0.32);
     card.innerHTML = cardHTML(p);
     grid.appendChild(card);
   }
@@ -1113,6 +1144,7 @@ document.getElementById('shareBtn').addEventListener('click', async () => {
   const statusEl = document.getElementById('shareStatus');
   const target = document.getElementById('shareCapture');
   statusEl.textContent = 'Capturing...';
+  target.classList.add('capturing');
 
   let canvas;
   try {
@@ -1124,8 +1156,10 @@ document.getElementById('shareBtn').addEventListener('click', async () => {
   } catch (err) {
     statusEl.textContent = "Couldn't capture image.";
     setTimeout(() => { statusEl.textContent = ''; }, 3000);
+    target.classList.remove('capturing');
     return;
   }
+  target.classList.remove('capturing');
 
   canvas.toBlob(async (blob) => {
     if (!blob) {
