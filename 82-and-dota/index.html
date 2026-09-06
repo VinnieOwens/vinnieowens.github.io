@@ -1010,13 +1010,19 @@ function computeSynergyGroups(rosterObj) {
     const isMultiYear = yearCount >= 2;
     const baseLabel = SYNERGY_LABEL_BY_SIZE[mg.size];
     const label = isMultiYear ? `Multi-Year ${baseLabel}` : baseLabel;
-    // each qualifying year contributes its own share independently
-    const bonus = mg.instances.length * mg.members.reduce((s, m) => s + m.player.score * rate, 0);
     // strength scales with BOTH group size and how many years it's
     // happened -- a pair that's recurred 5 times is just as impressive
     // as a full 5-man Ultimate synergy, so both cap out at Legendary
     const strengthIndex = Math.min(4, (mg.size - 2) + (yearCount - 1));
     const colorTier = SYNERGY_COLOR_TIERS[strengthIndex];
+    // Bonus = a flat baseline (10 per strength tier, so a Legendary-tier
+    // synergy guarantees at least 50 points before any percentage even
+    // applies) PLUS the original per-year percentage on top -- this way
+    // even a synergy between two weak players still feels worth having,
+    // not just a rounding error on top of already-strong picks.
+    const baseline = (strengthIndex + 1) * 10;
+    const pctPart = mg.instances.length * mg.members.reduce((s, m) => s + m.player.score * rate, 0);
+    const bonus = baseline + pctPart;
     return { members: mg.members, size: mg.size, rate, label, instances: mg.instances, bonus, colorTier };
   });
 }
@@ -1029,8 +1035,52 @@ function computeSynergyBonus(rosterObj) {
 
 function computeTeamTotal(rosterObj) {
   const base = ROLE_ORDER.reduce((s, r) => s + rosterObj[r].score, 0);
-  const { bonus } = computeSynergyBonus(rosterObj);
-  return base + bonus;
+  const { bonus: synergyBonus } = computeSynergyBonus(rosterObj);
+  const { bonus: rivalryBonus } = computeRivalryBonus(rosterObj);
+  return base + synergyBonus + rivalryBonus;
+}
+
+// ---- Rivalry bonus ----
+// If two of your drafted players finished 1st and 2nd at the SAME TI,
+// they were literally on opposing sides of that year's Grand Final --
+// a flat 15 points per year that happened (a rematch across multiple
+// years stacks, though that's a genuinely rare coincidence).
+const RIVALRY_POINTS_PER_YEAR = 15;
+
+function computeRivalryGroups(rosterObj) {
+  const players = ROLE_ORDER.map(role => ({ role, player: rosterObj[role] }));
+  const groups = [];
+
+  for (let i = 0; i < players.length; i++) {
+    for (let j = i + 1; j < players.length; j++) {
+      const a = players[i], b = players[j];
+      const years = new Set();
+      for (const appA of a.player.appearances) {
+        if (appA.tier_rank !== 0 && appA.tier_rank !== 1) continue;
+        for (const appB of b.player.appearances) {
+          if (appB.year !== appA.year) continue;
+          const isFinal = (appA.tier_rank === 0 && appB.tier_rank === 1) ||
+                           (appA.tier_rank === 1 && appB.tier_rank === 0);
+          if (isFinal) years.add(appA.year);
+        }
+      }
+      if (years.size > 0) {
+        const sortedYears = [...years].sort((x, y) => x - y);
+        groups.push({
+          members: [a, b],
+          years: sortedYears,
+          bonus: sortedYears.length * RIVALRY_POINTS_PER_YEAR,
+        });
+      }
+    }
+  }
+  return groups;
+}
+
+function computeRivalryBonus(rosterObj) {
+  const groups = computeRivalryGroups(rosterObj);
+  const bonus = groups.reduce((s, g) => s + g.bonus, 0);
+  return { bonus, groups };
 }
 
 function renderSynergyOverlay(rosterObj) {
@@ -1156,16 +1206,122 @@ function renderSynergyOverlay(rosterObj) {
   grid.appendChild(svg);
 }
 
+function renderRivalryOverlay(rosterObj) {
+  const grid = document.getElementById('rosterGrid');
+  const existing = document.getElementById('rivalrySvg');
+  if (existing) existing.remove();
+
+  const { groups } = computeRivalryBonus(rosterObj);
+  if (groups.length === 0) return;
+
+  const gridRect = grid.getBoundingClientRect();
+  const cardEls = grid.querySelectorAll('.roster-card');
+  const posByRole = {};
+  ROLE_ORDER.forEach((role, i) => {
+    const r = cardEls[i].getBoundingClientRect();
+    posByRole[role] = {
+      x: r.left - gridRect.left + r.width / 2,
+      yTop: r.top - gridRect.top,
+    };
+  });
+
+  const rowHeight = 76;
+  const bottomPad = 30;
+  const svgHeight = bottomPad + groups.length * rowHeight;
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('id', 'rivalrySvg');
+  svg.setAttribute('width', gridRect.width);
+  svg.setAttribute('height', svgHeight);
+  svg.style.position = 'absolute';
+  svg.style.left = '0';
+  svg.style.bottom = '100%'; // grows upward, away from the cards
+  svg.style.overflow = 'visible';
+  svg.style.pointerEvents = 'none';
+
+  const rivalryRed = '#c0392b';
+
+  groups.forEach((g, gi) => {
+    // stack from the bottom of this SVG (closest to the cards) upward,
+    // so the first rivalry found sits nearest the roster
+    const labelY = svgHeight - bottomPad - gi * rowHeight;
+    const labelX = g.members.reduce((s, m) => s + posByRole[m.role].x, 0) / g.members.length;
+
+    g.members.forEach(m => {
+      const pos = posByRole[m.role];
+      const line = document.createElementNS(svgNS, 'path');
+      line.setAttribute('d', `M${pos.x},${svgHeight} L${labelX},${labelY}`);
+      line.setAttribute('stroke', TIER_HEX[m.player.tier]);
+      line.setAttribute('stroke-width', '2');
+      line.setAttribute('fill', 'none');
+      line.setAttribute('opacity', '0.55');
+      svg.appendChild(line);
+    });
+
+    const titleText = 'Rivalry Bonus!';
+    const yearsLabel = g.years.length > 1
+      ? `TI ${g.years.join(', ')} Grand Finals`
+      : `TI ${g.years[0]} Grand Finals`;
+    const subText = `${yearsLabel} \u00b7 +${g.bonus.toFixed(1)} pts`;
+
+    const titleW = measureTextWidth(titleText, 700, 15, 'Rajdhani');
+    const subW = measureTextWidth(subText, 600, 13, 'Rajdhani');
+    const pillW = Math.max(140, Math.min(gridRect.width - 12, Math.max(titleW, subW) + 36));
+    const pillH = 56;
+    const pillX = Math.max(6, Math.min(gridRect.width - pillW - 6, labelX - pillW / 2));
+    const pillY = labelY - pillH / 2;
+
+    const pill = document.createElementNS(svgNS, 'rect');
+    pill.setAttribute('x', pillX);
+    pill.setAttribute('y', pillY);
+    pill.setAttribute('width', pillW);
+    pill.setAttribute('height', pillH);
+    pill.setAttribute('rx', 16);
+    pill.setAttribute('fill', mixHexColors(rivalryRed, '#f3f0f8', 0.22));
+    pill.setAttribute('stroke', rivalryRed);
+    pill.setAttribute('stroke-width', '2');
+    svg.appendChild(pill);
+
+    const textX = pillX + pillW / 2;
+
+    const titleEl = document.createElementNS(svgNS, 'text');
+    titleEl.setAttribute('x', textX);
+    titleEl.setAttribute('y', pillY + 24);
+    titleEl.setAttribute('text-anchor', 'middle');
+    titleEl.setAttribute('font-family', "'Rajdhani', sans-serif");
+    titleEl.setAttribute('font-weight', '700');
+    titleEl.setAttribute('font-size', '15');
+    titleEl.setAttribute('fill', '#211c30');
+    titleEl.textContent = titleText;
+    svg.appendChild(titleEl);
+
+    const subEl = document.createElementNS(svgNS, 'text');
+    subEl.setAttribute('x', textX);
+    subEl.setAttribute('y', pillY + 42);
+    subEl.setAttribute('text-anchor', 'middle');
+    subEl.setAttribute('font-family', "'Rajdhani', sans-serif");
+    subEl.setAttribute('font-weight', '600');
+    subEl.setAttribute('font-size', '12');
+    subEl.setAttribute('fill', rivalryRed);
+    subEl.textContent = subText;
+    svg.appendChild(subEl);
+  });
+
+  grid.style.position = 'relative';
+  grid.style.marginTop = `${svgHeight + 32}px`;
+  grid.appendChild(svg);
+}
+
 const RATING_TIERS = [
   [0,   "How Did You Qualify?"],
-  [345, "Group Stage Dropout"],
-  [405, "Lower Bracket Exit"],
-  [465, "Took One Team Out With You"],
-  [510, "Solid Performance"],
-  [560, "Made a Deep Run"],
-  [610, "So Close to the Aegis"],
-  [650, "Grand Finals Sweeper"],
-  [700, "Greatest Of All Time"],
+  [350, "Group Stage Dropout"],
+  [410, "Lower Bracket Exit"],
+  [475, "Took One Team Out With You"],
+  [525, "Solid Performance"],
+  [585, "Made a Deep Run"],
+  [650, "So Close to the Aegis"],
+  [700, "Grand Finals Sweeper"],
+  [760, "Greatest Of All Time"],
 ];
 
 function getRating(score) {
@@ -1326,7 +1482,8 @@ function showFinal() {
 
   const grid = document.getElementById('rosterGrid');
   grid.innerHTML = '';
-  grid.style.marginBottom = ''; // reset before re-measuring for the overlay
+  grid.style.marginBottom = ''; // reset before re-measuring for the overlays
+  grid.style.marginTop = '';
   for (const role of ROLE_ORDER) {
     const p = roster[role];
     const tv = TIER_VARS[p.tier];
@@ -1340,6 +1497,7 @@ function showFinal() {
   }
 
   renderSynergyOverlay(roster);
+  renderRivalryOverlay(roster);
   recordRun(total, rating);
 }
 
@@ -1463,8 +1621,12 @@ async function buildShareImage(rosterObj, total, rating) {
   const synergyRowH = 76;
   const synergyBlockH = synergyGroups.length ? (24 + synergyGroups.length * synergyRowH) : 0;
 
+  const { groups: rivalryGroups } = computeRivalryBonus(rosterObj);
+  const rivalryRowH = 76;
+  const rivalryBlockH = rivalryGroups.length ? (24 + rivalryGroups.length * rivalryRowH) : 0;
+
   const W = 1200;
-  const cardY = 310, cardH = 340;
+  const cardY = 310 + rivalryBlockH, cardH = 340; // shift down to make room for rivalry pills above
   const footerY = cardY + cardH + 50 + synergyBlockH;
   const H = footerY + 30;
 
@@ -1502,18 +1664,78 @@ async function buildShareImage(rosterObj, total, rating) {
   ctx.font = "700 28px 'Rajdhani', sans-serif";
   ctx.fillText(rating, W / 2, 274);
 
-  // player cards
+  // player card X-positions, computed early since rivalry pills (drawn
+  // above the cards) need to know where to point their connecting lines
   const marginX = 40, gap = 16;
   const cardW = (W - marginX * 2 - gap * 4) / 5;
   const posByRole = {};
+  ROLE_ORDER.forEach((role, i) => {
+    posByRole[role] = marginX + i * (cardW + gap) + cardW / 2;
+  });
 
+  // rivalry connecting lines + labels, drawn ABOVE the cards
+  if (rivalryGroups.length) {
+    const rivalryRed = '#c0392b';
+    const rivalryBottom = cardY; // lines terminate at the top edge of the cards
+    const rivalryTop = cardY - rivalryBlockH;
+
+    rivalryGroups.forEach((g, gi) => {
+      const labelY = rivalryBottom - 24 - gi * rivalryRowH;
+      const labelX = g.members.reduce((s, m) => s + posByRole[m.role], 0) / g.members.length;
+
+      ctx.lineWidth = 2;
+      g.members.forEach(m => {
+        ctx.strokeStyle = TIER_HEX[m.player.tier];
+        ctx.globalAlpha = 0.55;
+        ctx.beginPath();
+        ctx.moveTo(posByRole[m.role], cardY);
+        ctx.lineTo(labelX, labelY);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      });
+
+      const titleText = 'Rivalry Bonus!';
+      const yearsLabel = g.years.length > 1
+        ? `TI ${g.years.join(', ')} Grand Finals`
+        : `TI ${g.years[0]} Grand Finals`;
+      const subText = `${yearsLabel} \u00b7 +${g.bonus.toFixed(1)} pts`;
+
+      ctx.font = "700 15px 'Rajdhani', sans-serif";
+      const titleW = ctx.measureText(titleText).width;
+      ctx.font = "600 13px 'Rajdhani', sans-serif";
+      const subW = ctx.measureText(subText).width;
+      const pillW = Math.max(160, Math.min(W - 40, Math.max(titleW, subW) + 40));
+      const pillH = 56;
+      const pillX = Math.max(20, Math.min(W - pillW - 20, labelX - pillW / 2));
+      const pillY = labelY - pillH / 2;
+
+      ctx.fillStyle = mixHexColors(rivalryRed, '#f3f0f8', 0.22);
+      drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
+      ctx.fill();
+      ctx.strokeStyle = rivalryRed;
+      ctx.lineWidth = 2;
+      drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
+      ctx.stroke();
+
+      const textCenterX = pillX + pillW / 2;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#211c30';
+      ctx.font = "700 16px 'Rajdhani', sans-serif";
+      ctx.fillText(titleText, textCenterX, pillY + 25);
+
+      ctx.fillStyle = rivalryRed;
+      ctx.font = "600 13px 'Rajdhani', sans-serif";
+      ctx.fillText(subText, textCenterX, pillY + 44);
+    });
+  }
+
+  // player cards
   for (let i = 0; i < ROLE_ORDER.length; i++) {
     const role = ROLE_ORDER[i];
     const p = rosterObj[role];
     const tierHex = TIER_HEX[p.tier];
     const x = marginX + i * (cardW + gap);
     const cx = x + cardW / 2;
-    posByRole[role] = cx;
 
     const bg = mixHexColors(tierHex, '#f3f0f8', 0.32);
     ctx.fillStyle = bg;
