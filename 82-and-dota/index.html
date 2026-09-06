@@ -1045,36 +1045,46 @@ function computeTeamTotal(rosterObj) {
 // they were literally on opposing sides of that year's Grand Final --
 // a flat 15 points per year that happened (a rematch across multiple
 // years stacks, though that's a genuinely rare coincidence).
-const RIVALRY_POINTS_PER_YEAR = 15;
+const RIVALRY_POINTS_PER_PLAYER_PER_YEAR = 5;
 
 function computeRivalryGroups(rosterObj) {
   const players = ROLE_ORDER.map(role => ({ role, player: rosterObj[role] }));
-  const groups = [];
 
-  for (let i = 0; i < players.length; i++) {
-    for (let j = i + 1; j < players.length; j++) {
-      const a = players[i], b = players[j];
-      const years = new Set();
-      for (const appA of a.player.appearances) {
-        if (appA.tier_rank !== 0 && appA.tier_rank !== 1) continue;
-        for (const appB of b.player.appearances) {
-          if (appB.year !== appA.year) continue;
-          const isFinal = (appA.tier_rank === 0 && appB.tier_rank === 1) ||
-                           (appA.tier_rank === 1 && appB.tier_rank === 0);
-          if (isFinal) years.add(appA.year);
-        }
-      }
-      if (years.size > 0) {
-        const sortedYears = [...years].sort((x, y) => x - y);
-        groups.push({
-          members: [a, b],
-          years: sortedYears,
-          bonus: sortedYears.length * RIVALRY_POINTS_PER_YEAR,
-        });
-      }
+  // For each year, find everyone on the winning side (tier_rank 0) and
+  // everyone on the losing side (tier_rank 1) of that year's Grand
+  // Final -- this naturally supports 1v1, 2v1, 2v2, etc, not just pairs.
+  const byYear = {};
+  players.forEach(p => {
+    p.player.appearances.forEach(a => {
+      if (a.tier_rank !== 0 && a.tier_rank !== 1) return;
+      if (!byYear[a.year]) byYear[a.year] = { winners: [], losers: [] };
+      (a.tier_rank === 0 ? byYear[a.year].winners : byYear[a.year].losers).push(p);
+    });
+  });
+
+  const rawGroups = [];
+  Object.entries(byYear).forEach(([year, { winners, losers }]) => {
+    if (winners.length > 0 && losers.length > 0) {
+      rawGroups.push({ year: parseInt(year, 10), members: [...winners, ...losers] });
     }
-  }
-  return groups;
+  });
+
+  // Merge by exact player-set, so the SAME group of rivals facing off
+  // across multiple years becomes one entry listing every year --
+  // identical idea to how synergy merges recurring groups.
+  const groupKey = g => g.members.map(m => m.role).sort().join(',');
+  const merged = {};
+  rawGroups.forEach(g => {
+    const k = groupKey(g);
+    if (!merged[k]) merged[k] = { members: g.members, years: [] };
+    merged[k].years.push(g.year);
+  });
+
+  return Object.values(merged).map(mg => {
+    const sortedYears = [...new Set(mg.years)].sort((a, b) => a - b);
+    const bonus = mg.members.length * sortedYears.length * RIVALRY_POINTS_PER_PLAYER_PER_YEAR;
+    return { members: mg.members, years: sortedYears, bonus };
+  });
 }
 
 function computeRivalryBonus(rosterObj) {
@@ -1119,15 +1129,16 @@ function renderSynergyOverlay(rosterObj) {
   groups.forEach((g, gi) => {
     const labelY = topPad + gi * rowHeight;
     const labelX = g.members.reduce((s, m) => s + posByRole[m.role].x, 0) / g.members.length;
+    const lineColor = TIER_HEX[g.colorTier];
     g.members.forEach(m => {
       const pos = posByRole[m.role];
       const line = document.createElementNS(svgNS, 'path');
       const startY = pos.y - gridRect.height; // relative to svg's own top (100% of grid)
       line.setAttribute('d', `M${pos.x},${startY} L${labelX},${labelY}`);
-      line.setAttribute('stroke', TIER_HEX[m.player.tier]);
-      line.setAttribute('stroke-width', '2');
+      line.setAttribute('stroke', lineColor);
+      line.setAttribute('stroke-width', '3');
       line.setAttribute('fill', 'none');
-      line.setAttribute('opacity', '0.55');
+      line.setAttribute('opacity', '0.6');
       svg.appendChild(line);
     });
 
@@ -1251,10 +1262,10 @@ function renderRivalryOverlay(rosterObj) {
       const pos = posByRole[m.role];
       const line = document.createElementNS(svgNS, 'path');
       line.setAttribute('d', `M${pos.x},${svgHeight} L${labelX},${labelY}`);
-      line.setAttribute('stroke', TIER_HEX[m.player.tier]);
-      line.setAttribute('stroke-width', '2');
+      line.setAttribute('stroke', rivalryRed);
+      line.setAttribute('stroke-width', '3');
       line.setAttribute('fill', 'none');
-      line.setAttribute('opacity', '0.55');
+      line.setAttribute('opacity', '0.6');
       svg.appendChild(line);
     });
 
@@ -1683,10 +1694,10 @@ async function buildShareImage(rosterObj, total, rating) {
       const labelY = rivalryBottom - 24 - gi * rivalryRowH;
       const labelX = g.members.reduce((s, m) => s + posByRole[m.role], 0) / g.members.length;
 
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 3;
       g.members.forEach(m => {
-        ctx.strokeStyle = TIER_HEX[m.player.tier];
-        ctx.globalAlpha = 0.55;
+        ctx.strokeStyle = rivalryRed;
+        ctx.globalAlpha = 0.6;
         ctx.beginPath();
         ctx.moveTo(posByRole[m.role], cardY);
         ctx.lineTo(labelX, labelY);
@@ -1795,11 +1806,12 @@ async function buildShareImage(rosterObj, total, rating) {
     synergyGroups.forEach((g, gi) => {
       const labelY = synergyTop + gi * synergyRowH + 28;
       const labelX = g.members.reduce((s, m) => s + posByRole[m.role], 0) / g.members.length;
+      const tierColor = TIER_HEX[g.colorTier];
 
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 3;
       g.members.forEach(m => {
-        ctx.strokeStyle = TIER_HEX[m.player.tier];
-        ctx.globalAlpha = 0.55;
+        ctx.strokeStyle = tierColor;
+        ctx.globalAlpha = 0.6;
         ctx.beginPath();
         ctx.moveTo(posByRole[m.role], cardY + cardH);
         ctx.lineTo(labelX, labelY);
@@ -1827,7 +1839,6 @@ async function buildShareImage(rosterObj, total, rating) {
       const pillX = Math.max(20, Math.min(W - pillW - 20, labelX - pillW / 2));
       const pillY = labelY - pillH / 2;
 
-      const tierColor = TIER_HEX[g.colorTier];
       ctx.fillStyle = mixHexColors(tierColor, '#f3f0f8', 0.22);
       drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
       ctx.fill();
