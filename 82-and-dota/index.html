@@ -975,7 +975,6 @@ function mixHexColors(hexA, hexB, pctA) {
 // pairwise rate for that specific team+year (no stacking within a group).
 const SYNERGY_RATE_BY_SIZE = { 2: 0.05, 3: 0.075, 4: 0.10, 5: 0.15 };
 const SYNERGY_LABEL_BY_SIZE = { 2: 'Synergy', 3: 'Triple Synergy', 4: 'Quadruple Synergy', 5: 'Ultimate Synergy' };
-const STRONG_SYNERGY_LABEL_BY_SIZE = { 2: 'Strong Synergy', 3: 'Strong Triple Synergy', 4: 'Strong Quadruple Synergy', 5: 'Strong Ultimate Synergy' };
 
 function computeSynergyGroups(rosterObj) {
   const byTeamYear = {}; // "team|year" -> { team, year, members: [{role, player}] }
@@ -990,36 +989,33 @@ function computeSynergyGroups(rosterObj) {
     }
   }
 
-  const groups = Object.values(byTeamYear).filter(g => g.members.length >= 2);
+  const rawGroups = Object.values(byTeamYear).filter(g => g.members.length >= 2);
 
-  // A group (any size, 2-5) gets called "Strong" if that EXACT same set
-  // of players also shares another qualifying team+year elsewhere -- so a
-  // trio that played together in two different years is a "Strong Triple
-  // Synergy", not just a "Triple Synergy", the same idea that already
-  // applied to pairs.
+  // Merge every raw team+year group by its exact player-set, so a pair
+  // (or trio, quad...) that recurs across multiple years becomes ONE
+  // entry listing every year, instead of one separate entry per year.
   const groupKey = g => g.members.map(m => m.role).sort().join(',');
-  const groupOccurrences = {};
-  groups.forEach(g => {
+  const merged = {};
+  rawGroups.forEach(g => {
     const k = groupKey(g);
-    groupOccurrences[k] = (groupOccurrences[k] || 0) + 1;
+    if (!merged[k]) merged[k] = { members: g.members, size: g.members.length, instances: [] };
+    merged[k].instances.push({ team: g.team, year: g.year });
   });
 
-  groups.forEach(g => {
-    const size = g.members.length;
-    g.rate = SYNERGY_RATE_BY_SIZE[size];
-    const isStrong = groupOccurrences[groupKey(g)] >= 2;
-    g.label = isStrong ? STRONG_SYNERGY_LABEL_BY_SIZE[size] : SYNERGY_LABEL_BY_SIZE[size];
+  return Object.values(merged).map(mg => {
+    const rate = SYNERGY_RATE_BY_SIZE[mg.size];
+    const isMultiYear = mg.instances.length >= 2;
+    const baseLabel = SYNERGY_LABEL_BY_SIZE[mg.size];
+    const label = isMultiYear ? `Multi-Year ${baseLabel}` : baseLabel;
+    // each qualifying year contributes its own share independently
+    const bonus = mg.instances.length * mg.members.reduce((s, m) => s + m.player.score * rate, 0);
+    return { members: mg.members, size: mg.size, rate, label, instances: mg.instances, bonus };
   });
-
-  return groups;
 }
 
 function computeSynergyBonus(rosterObj) {
   const groups = computeSynergyGroups(rosterObj);
-  let bonus = 0;
-  groups.forEach(g => {
-    g.members.forEach(m => { bonus += m.player.score * g.rate; });
-  });
+  const bonus = groups.reduce((s, g) => s + g.bonus, 0);
   return { bonus, groups };
 }
 
@@ -1048,8 +1044,8 @@ function renderSynergyOverlay(rosterObj) {
     };
   });
 
-  const rowHeight = 46;
-  const topPad = 26;
+  const rowHeight = 76;
+  const topPad = 30;
   const svgHeight = topPad + groups.length * rowHeight;
   const svgNS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(svgNS, 'svg');
@@ -1065,7 +1061,6 @@ function renderSynergyOverlay(rosterObj) {
   groups.forEach((g, gi) => {
     const labelY = topPad + gi * rowHeight;
     const labelX = g.members.reduce((s, m) => s + posByRole[m.role].x, 0) / g.members.length;
-
     g.members.forEach(m => {
       const pos = posByRole[m.role];
       const line = document.createElementNS(svgNS, 'path');
@@ -1078,44 +1073,70 @@ function renderSynergyOverlay(rosterObj) {
       svg.appendChild(line);
     });
 
-    const logoUrl = (g.members[0].player.team_logos && g.members[0].player.team_logos[g.team]) || '';
-    const labelText = `${g.year} \u00b7 ${g.team} \u00b7 ${g.label}`;
+    // up to 2 distinct team logos (usually just 1, unless the group
+    // moved teams together across the years they played together)
+    const teamNames = [...new Set(g.instances.map(inst => inst.team))].slice(0, 2);
+    const logoUrls = teamNames
+      .map(t => (g.members[0].player.team_logos && g.members[0].player.team_logos[t]) || '')
+      .filter(Boolean);
+    const yearsText = [...new Set(g.instances.map(i => i.year))].sort((a, b) => a - b).join(', ');
+    const titleText = `${g.label}!`;
+    const subText = `${yearsText} \u00b7 +${g.bonus.toFixed(1)} pts`;
 
-    // rough width estimate so the background pill fits the text
-    const pillW = Math.min(gridRect.width - 20, 34 + labelText.length * 6.4);
+    const pillW = Math.min(gridRect.width - 20, 230);
+    const pillH = 56;
     const pillX = Math.max(6, Math.min(gridRect.width - pillW - 6, labelX - pillW / 2));
+    const pillY = labelY - pillH / 2;
 
     const pill = document.createElementNS(svgNS, 'rect');
     pill.setAttribute('x', pillX);
-    pill.setAttribute('y', labelY - 14);
+    pill.setAttribute('y', pillY);
     pill.setAttribute('width', pillW);
-    pill.setAttribute('height', 28);
-    pill.setAttribute('rx', 14);
-    pill.setAttribute('fill', '#201c30');
-    pill.setAttribute('stroke', '#37304f');
+    pill.setAttribute('height', pillH);
+    pill.setAttribute('rx', 16);
+    pill.setAttribute('fill', '#ececec');
+    pill.setAttribute('stroke', '#b0a99a');
+    pill.setAttribute('stroke-width', '1.5');
     svg.appendChild(pill);
 
-    let textX = pillX + 12;
-    if (logoUrl) {
-      const img = document.createElementNS(svgNS, 'image');
-      img.setAttribute('href', logoUrl);
-      img.setAttribute('x', pillX + 8);
-      img.setAttribute('y', labelY - 9);
-      img.setAttribute('width', 18);
-      img.setAttribute('height', 18);
-      svg.appendChild(img);
-      textX = pillX + 32;
+    let textX = pillX + pillW / 2 + 14;
+    if (logoUrls.length) {
+      const logoSize = logoUrls.length > 1 ? 22 : 32;
+      const startY = pillY + pillH / 2 - (logoUrls.length > 1 ? logoUrls.length * logoSize / 2 : logoSize / 2);
+      logoUrls.forEach((url, li) => {
+        const img = document.createElementNS(svgNS, 'image');
+        img.setAttribute('href', url);
+        img.setAttribute('x', pillX + 12);
+        img.setAttribute('y', startY + li * logoSize);
+        img.setAttribute('width', logoSize);
+        img.setAttribute('height', logoSize);
+        svg.appendChild(img);
+      });
+    } else {
+      textX = pillX + pillW / 2;
     }
 
-    const text = document.createElementNS(svgNS, 'text');
-    text.setAttribute('x', textX);
-    text.setAttribute('y', labelY + 5);
-    text.setAttribute('font-family', "'Rajdhani', sans-serif");
-    text.setAttribute('font-weight', '700');
-    text.setAttribute('font-size', '13');
-    text.setAttribute('fill', '#f0ede8');
-    text.textContent = labelText;
-    svg.appendChild(text);
+    const titleEl = document.createElementNS(svgNS, 'text');
+    titleEl.setAttribute('x', textX);
+    titleEl.setAttribute('y', pillY + 24);
+    titleEl.setAttribute('text-anchor', 'middle');
+    titleEl.setAttribute('font-family', "'Rajdhani', sans-serif");
+    titleEl.setAttribute('font-weight', '700');
+    titleEl.setAttribute('font-size', '15');
+    titleEl.setAttribute('fill', '#211c30');
+    titleEl.textContent = titleText;
+    svg.appendChild(titleEl);
+
+    const subEl = document.createElementNS(svgNS, 'text');
+    subEl.setAttribute('x', textX);
+    subEl.setAttribute('y', pillY + 42);
+    subEl.setAttribute('text-anchor', 'middle');
+    subEl.setAttribute('font-family', "'Rajdhani', sans-serif");
+    subEl.setAttribute('font-weight', '600');
+    subEl.setAttribute('font-size', '12');
+    subEl.setAttribute('fill', '#a8481f');
+    subEl.textContent = subText;
+    svg.appendChild(subEl);
   });
 
   grid.style.position = 'relative';
@@ -1417,7 +1438,7 @@ async function buildShareImage(rosterObj, total, rating) {
   if (document.fonts && document.fonts.ready) await document.fonts.ready;
 
   const { groups: synergyGroups } = computeSynergyBonus(rosterObj);
-  const synergyRowH = 42;
+  const synergyRowH = 76;
   const synergyBlockH = synergyGroups.length ? (24 + synergyGroups.length * synergyRowH) : 0;
 
   const W = 1200;
@@ -1520,12 +1541,15 @@ async function buildShareImage(rosterObj, total, rating) {
     const synergyTop = cardY + cardH + 24;
     const logoCache = {};
     for (const g of synergyGroups) {
-      const logoUrl = (g.members[0].player.team_logos && g.members[0].player.team_logos[g.team]) || '';
-      if (logoUrl && !(logoUrl in logoCache)) logoCache[logoUrl] = await loadImageSafe(logoUrl);
+      const teamNames = [...new Set(g.instances.map(inst => inst.team))].slice(0, 2);
+      for (const t of teamNames) {
+        const logoUrl = (g.members[0].player.team_logos && g.members[0].player.team_logos[t]) || '';
+        if (logoUrl && !(logoUrl in logoCache)) logoCache[logoUrl] = await loadImageSafe(logoUrl);
+      }
     }
 
     synergyGroups.forEach((g, gi) => {
-      const labelY = synergyTop + gi * synergyRowH + 16;
+      const labelY = synergyTop + gi * synergyRowH + 28;
       const labelX = g.members.reduce((s, m) => s + posByRole[m.role], 0) / g.members.length;
 
       ctx.lineWidth = 2;
@@ -1539,29 +1563,46 @@ async function buildShareImage(rosterObj, total, rating) {
         ctx.globalAlpha = 1;
       });
 
-      const logoUrl = (g.members[0].player.team_logos && g.members[0].player.team_logos[g.team]) || '';
-      const img = logoUrl ? logoCache[logoUrl] : null;
-      const labelText = `${g.year} \u00b7 ${g.team} \u00b7 ${g.label}`;
+      const teamNames = [...new Set(g.instances.map(inst => inst.team))].slice(0, 2);
+      const imgs = teamNames
+        .map(t => (g.members[0].player.team_logos && g.members[0].player.team_logos[t]) || '')
+        .filter(Boolean)
+        .map(url => logoCache[url])
+        .filter(Boolean);
+      const yearsText = [...new Set(g.instances.map(i => i.year))].sort((a, b) => a - b).join(', ');
+      const titleText = `${g.label}!`;
+      const subText = `${yearsText} \u00b7 +${g.bonus.toFixed(1)} pts`;
 
-      ctx.font = "700 15px 'Rajdhani', sans-serif";
-      const textW = ctx.measureText(labelText).width;
-      const pillW = Math.min(W - 60, textW + (img ? 54 : 28));
+      const pillW = 230, pillH = 56;
       const pillX = Math.max(20, Math.min(W - pillW - 20, labelX - pillW / 2));
+      const pillY = labelY - pillH / 2;
 
-      ctx.fillStyle = '#201c30';
-      drawRoundedRect(ctx, pillX, labelY - 16, pillW, 32, 16);
+      ctx.fillStyle = '#ececec';
+      drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
       ctx.fill();
-      ctx.strokeStyle = '#37304f';
-      ctx.lineWidth = 1;
-      drawRoundedRect(ctx, pillX, labelY - 16, pillW, 32, 16);
+      ctx.strokeStyle = '#b0a99a';
+      ctx.lineWidth = 1.5;
+      drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
       ctx.stroke();
 
-      let textX = pillX + pillW / 2 + (img ? 12 : 0);
-      if (img) ctx.drawImage(img, pillX + 10, labelY - 11, 22, 22);
+      let textCenterX = pillX + pillW / 2 + (imgs.length ? 14 : 0);
+      if (imgs.length) {
+        const logoSize = imgs.length > 1 ? 22 : 32;
+        let ly = pillY + pillH / 2 - (imgs.length > 1 ? imgs.length * logoSize / 2 : logoSize / 2);
+        imgs.forEach(img => {
+          ctx.drawImage(img, pillX + 12, ly, logoSize, logoSize);
+          ly += logoSize;
+        });
+      }
 
-      ctx.fillStyle = '#f0ede8';
       ctx.textAlign = 'center';
-      ctx.fillText(labelText, textX, labelY + 5);
+      ctx.fillStyle = '#211c30';
+      ctx.font = "700 16px 'Rajdhani', sans-serif";
+      ctx.fillText(titleText, textCenterX, pillY + 25);
+
+      ctx.fillStyle = '#a8481f';
+      ctx.font = "600 13px 'Rajdhani', sans-serif";
+      ctx.fillText(subText, textCenterX, pillY + 44);
     });
   }
 
