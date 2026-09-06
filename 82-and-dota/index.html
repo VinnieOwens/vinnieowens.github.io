@@ -968,6 +968,161 @@ function mixHexColors(hexA, hexB, pctA) {
   return `rgb(${mix(r1, r2)}, ${mix(g1, g2)}, ${mix(b1, b2)})`;
 }
 
+// ---- Synergy mechanic ----
+// Groups drafted players who shared a real team+year together at TI.
+// Rate/label depend on how many of your 5 drafted players were on that
+// SAME team in that SAME year -- the group rate replaces any smaller
+// pairwise rate for that specific team+year (no stacking within a group).
+const SYNERGY_RATE_BY_SIZE = { 2: 0.05, 3: 0.075, 4: 0.10, 5: 0.15 };
+const SYNERGY_LABEL_BY_SIZE = { 2: 'Synergy', 3: 'Triple Synergy', 4: 'Quadruple Synergy', 5: 'Ultimate Synergy' };
+const STRONG_SYNERGY_LABEL_BY_SIZE = { 2: 'Strong Synergy', 3: 'Strong Triple Synergy', 4: 'Strong Quadruple Synergy', 5: 'Strong Ultimate Synergy' };
+
+function computeSynergyGroups(rosterObj) {
+  const byTeamYear = {}; // "team|year" -> { team, year, members: [{role, player}] }
+
+  for (const role of ROLE_ORDER) {
+    const p = rosterObj[role];
+    for (const a of p.appearances) {
+      if (!a.team || !a.year) continue;
+      const key = `${a.team}|${a.year}`;
+      if (!byTeamYear[key]) byTeamYear[key] = { team: a.team, year: a.year, members: [] };
+      byTeamYear[key].members.push({ role, player: p });
+    }
+  }
+
+  const groups = Object.values(byTeamYear).filter(g => g.members.length >= 2);
+
+  // A group (any size, 2-5) gets called "Strong" if that EXACT same set
+  // of players also shares another qualifying team+year elsewhere -- so a
+  // trio that played together in two different years is a "Strong Triple
+  // Synergy", not just a "Triple Synergy", the same idea that already
+  // applied to pairs.
+  const groupKey = g => g.members.map(m => m.role).sort().join(',');
+  const groupOccurrences = {};
+  groups.forEach(g => {
+    const k = groupKey(g);
+    groupOccurrences[k] = (groupOccurrences[k] || 0) + 1;
+  });
+
+  groups.forEach(g => {
+    const size = g.members.length;
+    g.rate = SYNERGY_RATE_BY_SIZE[size];
+    const isStrong = groupOccurrences[groupKey(g)] >= 2;
+    g.label = isStrong ? STRONG_SYNERGY_LABEL_BY_SIZE[size] : SYNERGY_LABEL_BY_SIZE[size];
+  });
+
+  return groups;
+}
+
+function computeSynergyBonus(rosterObj) {
+  const groups = computeSynergyGroups(rosterObj);
+  let bonus = 0;
+  groups.forEach(g => {
+    g.members.forEach(m => { bonus += m.player.score * g.rate; });
+  });
+  return { bonus, groups };
+}
+
+function computeTeamTotal(rosterObj) {
+  const base = ROLE_ORDER.reduce((s, r) => s + rosterObj[r].score, 0);
+  const { bonus } = computeSynergyBonus(rosterObj);
+  return base + bonus;
+}
+
+function renderSynergyOverlay(rosterObj) {
+  const grid = document.getElementById('rosterGrid');
+  const existing = document.getElementById('synergySvg');
+  if (existing) existing.remove();
+
+  const { groups } = computeSynergyBonus(rosterObj);
+  if (groups.length === 0) return;
+
+  const gridRect = grid.getBoundingClientRect();
+  const cardEls = grid.querySelectorAll('.roster-card');
+  const posByRole = {};
+  ROLE_ORDER.forEach((role, i) => {
+    const r = cardEls[i].getBoundingClientRect();
+    posByRole[role] = {
+      x: r.left - gridRect.left + r.width / 2,
+      y: r.bottom - gridRect.top,
+    };
+  });
+
+  const rowHeight = 46;
+  const topPad = 26;
+  const svgHeight = topPad + groups.length * rowHeight;
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('id', 'synergySvg');
+  svg.setAttribute('width', gridRect.width);
+  svg.setAttribute('height', svgHeight);
+  svg.style.position = 'absolute';
+  svg.style.left = '0';
+  svg.style.top = '100%';
+  svg.style.overflow = 'visible';
+  svg.style.pointerEvents = 'none';
+
+  groups.forEach((g, gi) => {
+    const labelY = topPad + gi * rowHeight;
+    const labelX = g.members.reduce((s, m) => s + posByRole[m.role].x, 0) / g.members.length;
+
+    g.members.forEach(m => {
+      const pos = posByRole[m.role];
+      const line = document.createElementNS(svgNS, 'path');
+      const startY = pos.y - gridRect.height; // relative to svg's own top (100% of grid)
+      line.setAttribute('d', `M${pos.x},${startY} L${labelX},${labelY}`);
+      line.setAttribute('stroke', TIER_HEX[m.player.tier]);
+      line.setAttribute('stroke-width', '2');
+      line.setAttribute('fill', 'none');
+      line.setAttribute('opacity', '0.55');
+      svg.appendChild(line);
+    });
+
+    const logoUrl = (g.members[0].player.team_logos && g.members[0].player.team_logos[g.team]) || '';
+    const labelText = `${g.year} \u00b7 ${g.team} \u00b7 ${g.label}`;
+
+    // rough width estimate so the background pill fits the text
+    const pillW = Math.min(gridRect.width - 20, 34 + labelText.length * 6.4);
+    const pillX = Math.max(6, Math.min(gridRect.width - pillW - 6, labelX - pillW / 2));
+
+    const pill = document.createElementNS(svgNS, 'rect');
+    pill.setAttribute('x', pillX);
+    pill.setAttribute('y', labelY - 14);
+    pill.setAttribute('width', pillW);
+    pill.setAttribute('height', 28);
+    pill.setAttribute('rx', 14);
+    pill.setAttribute('fill', '#201c30');
+    pill.setAttribute('stroke', '#37304f');
+    svg.appendChild(pill);
+
+    let textX = pillX + 12;
+    if (logoUrl) {
+      const img = document.createElementNS(svgNS, 'image');
+      img.setAttribute('href', logoUrl);
+      img.setAttribute('x', pillX + 8);
+      img.setAttribute('y', labelY - 9);
+      img.setAttribute('width', 18);
+      img.setAttribute('height', 18);
+      svg.appendChild(img);
+      textX = pillX + 32;
+    }
+
+    const text = document.createElementNS(svgNS, 'text');
+    text.setAttribute('x', textX);
+    text.setAttribute('y', labelY + 5);
+    text.setAttribute('font-family', "'Rajdhani', sans-serif");
+    text.setAttribute('font-weight', '700');
+    text.setAttribute('font-size', '13');
+    text.setAttribute('fill', '#f0ede8');
+    text.textContent = labelText;
+    svg.appendChild(text);
+  });
+
+  grid.style.position = 'relative';
+  grid.style.marginBottom = `${svgHeight + 32}px`;
+  grid.appendChild(svg);
+}
+
 const RATING_TIERS = [
   [0,   "How Did You Qualify?"],
   [345, "Group Stage Dropout"],
@@ -1130,7 +1285,7 @@ function showFinal() {
   const finalStage = document.getElementById('finalStage');
   finalStage.classList.remove('hidden');
 
-  const total = ROLE_ORDER.reduce((s, r) => s + roster[r].score, 0);
+  const total = computeTeamTotal(roster);
   const rating = getRating(total);
   const scoreEl = document.getElementById('teamScore');
   animateNumber(scoreEl, total);
@@ -1138,6 +1293,7 @@ function showFinal() {
 
   const grid = document.getElementById('rosterGrid');
   grid.innerHTML = '';
+  grid.style.marginBottom = ''; // reset before re-measuring for the overlay
   for (const role of ROLE_ORDER) {
     const p = roster[role];
     const tv = TIER_VARS[p.tier];
@@ -1150,6 +1306,7 @@ function showFinal() {
     grid.appendChild(card);
   }
 
+  renderSynergyOverlay(roster);
   recordRun(total, rating);
 }
 
@@ -1259,7 +1416,15 @@ function fitFontSize(ctx, text, maxWidth, startSize, weight, family) {
 async function buildShareImage(rosterObj, total, rating) {
   if (document.fonts && document.fonts.ready) await document.fonts.ready;
 
-  const W = 1200, H = 760;
+  const { groups: synergyGroups } = computeSynergyBonus(rosterObj);
+  const synergyRowH = 42;
+  const synergyBlockH = synergyGroups.length ? (24 + synergyGroups.length * synergyRowH) : 0;
+
+  const W = 1200;
+  const cardY = 310, cardH = 340;
+  const footerY = cardY + cardH + 50 + synergyBlockH;
+  const H = footerY + 30;
+
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
@@ -1296,8 +1461,8 @@ async function buildShareImage(rosterObj, total, rating) {
 
   // player cards
   const marginX = 40, gap = 16;
-  const cardY = 310, cardH = 340;
   const cardW = (W - marginX * 2 - gap * 4) / 5;
+  const posByRole = {};
 
   for (let i = 0; i < ROLE_ORDER.length; i++) {
     const role = ROLE_ORDER[i];
@@ -1305,6 +1470,7 @@ async function buildShareImage(rosterObj, total, rating) {
     const tierHex = TIER_HEX[p.tier];
     const x = marginX + i * (cardW + gap);
     const cx = x + cardW / 2;
+    posByRole[role] = cx;
 
     const bg = mixHexColors(tierHex, '#f3f0f8', 0.32);
     ctx.fillStyle = bg;
@@ -1349,13 +1515,63 @@ async function buildShareImage(rosterObj, total, rating) {
     ctx.fillText(ROLE_NAMES[role], cx, cardY + 198);
   }
 
+  // synergy connecting lines + labels, drawn between the cards and the footer
+  if (synergyGroups.length) {
+    const synergyTop = cardY + cardH + 24;
+    const logoCache = {};
+    for (const g of synergyGroups) {
+      const logoUrl = (g.members[0].player.team_logos && g.members[0].player.team_logos[g.team]) || '';
+      if (logoUrl && !(logoUrl in logoCache)) logoCache[logoUrl] = await loadImageSafe(logoUrl);
+    }
+
+    synergyGroups.forEach((g, gi) => {
+      const labelY = synergyTop + gi * synergyRowH + 16;
+      const labelX = g.members.reduce((s, m) => s + posByRole[m.role], 0) / g.members.length;
+
+      ctx.lineWidth = 2;
+      g.members.forEach(m => {
+        ctx.strokeStyle = TIER_HEX[m.player.tier];
+        ctx.globalAlpha = 0.55;
+        ctx.beginPath();
+        ctx.moveTo(posByRole[m.role], cardY + cardH);
+        ctx.lineTo(labelX, labelY);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      });
+
+      const logoUrl = (g.members[0].player.team_logos && g.members[0].player.team_logos[g.team]) || '';
+      const img = logoUrl ? logoCache[logoUrl] : null;
+      const labelText = `${g.year} \u00b7 ${g.team} \u00b7 ${g.label}`;
+
+      ctx.font = "700 15px 'Rajdhani', sans-serif";
+      const textW = ctx.measureText(labelText).width;
+      const pillW = Math.min(W - 60, textW + (img ? 54 : 28));
+      const pillX = Math.max(20, Math.min(W - pillW - 20, labelX - pillW / 2));
+
+      ctx.fillStyle = '#201c30';
+      drawRoundedRect(ctx, pillX, labelY - 16, pillW, 32, 16);
+      ctx.fill();
+      ctx.strokeStyle = '#37304f';
+      ctx.lineWidth = 1;
+      drawRoundedRect(ctx, pillX, labelY - 16, pillW, 32, 16);
+      ctx.stroke();
+
+      let textX = pillX + pillW / 2 + (img ? 12 : 0);
+      if (img) ctx.drawImage(img, pillX + 10, labelY - 11, 22, 22);
+
+      ctx.fillStyle = '#f0ede8';
+      ctx.textAlign = 'center';
+      ctx.fillText(labelText, textX, labelY + 5);
+    });
+  }
+
   // footer link back to the site
   const url = window.location.origin + window.location.pathname;
   const footerText = `Draft your own team \u2192 ${url}`;
   ctx.fillStyle = '#a335ee';
   const footerSize = fitFontSize(ctx, footerText, W - 60, 28, 700, 'Rajdhani');
   ctx.font = `700 ${footerSize}px 'Rajdhani', sans-serif`;
-  ctx.fillText(footerText, W / 2, H - 30);
+  ctx.fillText(footerText, W / 2, footerY);
 
   return canvas;
 }
@@ -1403,7 +1619,7 @@ async function shareRoster(rosterObj, total, rating, statusEl) {
 }
 
 document.getElementById('shareBtn').addEventListener('click', () => {
-  const total = ROLE_ORDER.reduce((s, r) => s + roster[r].score, 0);
+  const total = computeTeamTotal(roster);
   const rating = getRating(total);
   shareRoster(roster, total, rating, document.getElementById('shareStatus'));
 });
