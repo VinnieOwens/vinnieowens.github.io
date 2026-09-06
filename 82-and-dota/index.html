@@ -976,6 +976,8 @@ function mixHexColors(hexA, hexB, pctA) {
 const SYNERGY_RATE_BY_SIZE = { 2: 0.05, 3: 0.075, 4: 0.10, 5: 0.15 };
 const SYNERGY_LABEL_BY_SIZE = { 2: 'Synergy', 3: 'Triple Synergy', 4: 'Quadruple Synergy', 5: 'Ultimate Synergy' };
 
+const SYNERGY_COLOR_TIERS = ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary'];
+
 function computeSynergyGroups(rosterObj) {
   const byTeamYear = {}; // "team|year" -> { team, year, members: [{role, player}] }
 
@@ -1004,12 +1006,18 @@ function computeSynergyGroups(rosterObj) {
 
   return Object.values(merged).map(mg => {
     const rate = SYNERGY_RATE_BY_SIZE[mg.size];
-    const isMultiYear = mg.instances.length >= 2;
+    const yearCount = new Set(mg.instances.map(i => i.year)).size;
+    const isMultiYear = yearCount >= 2;
     const baseLabel = SYNERGY_LABEL_BY_SIZE[mg.size];
     const label = isMultiYear ? `Multi-Year ${baseLabel}` : baseLabel;
     // each qualifying year contributes its own share independently
     const bonus = mg.instances.length * mg.members.reduce((s, m) => s + m.player.score * rate, 0);
-    return { members: mg.members, size: mg.size, rate, label, instances: mg.instances, bonus };
+    // strength scales with BOTH group size and how many years it's
+    // happened -- a pair that's recurred 5 times is just as impressive
+    // as a full 5-man Ultimate synergy, so both cap out at Legendary
+    const strengthIndex = Math.min(4, (mg.size - 2) + (yearCount - 1));
+    const colorTier = SYNERGY_COLOR_TIERS[strengthIndex];
+    return { members: mg.members, size: mg.size, rate, label, instances: mg.instances, bonus, colorTier };
   });
 }
 
@@ -1083,20 +1091,24 @@ function renderSynergyOverlay(rosterObj) {
     const titleText = `${g.label}!`;
     const subText = `${yearsText} \u00b7 +${g.bonus.toFixed(1)} pts`;
 
-    const pillW = Math.min(gridRect.width - 20, 230);
+    const logoReserve = logoUrls.length ? (logoUrls.length > 1 ? 34 : 44) : 0;
+    const titleW = measureTextWidth(titleText, 700, 15, 'Rajdhani');
+    const subW = measureTextWidth(subText, 600, 13, 'Rajdhani');
+    const pillW = Math.max(140, Math.min(gridRect.width - 12, Math.max(titleW, subW) + logoReserve + 36));
     const pillH = 56;
     const pillX = Math.max(6, Math.min(gridRect.width - pillW - 6, labelX - pillW / 2));
     const pillY = labelY - pillH / 2;
 
+    const tierColor = TIER_HEX[g.colorTier];
     const pill = document.createElementNS(svgNS, 'rect');
     pill.setAttribute('x', pillX);
     pill.setAttribute('y', pillY);
     pill.setAttribute('width', pillW);
     pill.setAttribute('height', pillH);
     pill.setAttribute('rx', 16);
-    pill.setAttribute('fill', '#ececec');
-    pill.setAttribute('stroke', '#b0a99a');
-    pill.setAttribute('stroke-width', '1.5');
+    pill.setAttribute('fill', mixHexColors(tierColor, '#f3f0f8', 0.22));
+    pill.setAttribute('stroke', tierColor);
+    pill.setAttribute('stroke-width', '2');
     svg.appendChild(pill);
 
     let textX = pillX + pillW / 2 + 14;
@@ -1134,7 +1146,7 @@ function renderSynergyOverlay(rosterObj) {
     subEl.setAttribute('font-family', "'Rajdhani', sans-serif");
     subEl.setAttribute('font-weight', '600');
     subEl.setAttribute('font-size', '12');
-    subEl.setAttribute('fill', '#a8481f');
+    subEl.setAttribute('fill', tierColor);
     subEl.textContent = subText;
     svg.appendChild(subEl);
   });
@@ -1434,6 +1446,16 @@ function fitFontSize(ctx, text, maxWidth, startSize, weight, family) {
   return size;
 }
 
+// A reusable offscreen canvas purely for measuring text width -- used by
+// the live SVG synergy overlay, since SVG has no built-in equivalent of
+// canvas's measureText() until an element is actually attached to the DOM.
+const _measureCanvas = document.createElement('canvas');
+const _measureCtx = _measureCanvas.getContext('2d');
+function measureTextWidth(text, weight, size, family) {
+  _measureCtx.font = `${weight} ${size}px '${family}', sans-serif`;
+  return _measureCtx.measureText(text).width;
+}
+
 async function buildShareImage(rosterObj, total, rating) {
   if (document.fonts && document.fonts.ready) await document.fonts.ready;
 
@@ -1573,15 +1595,22 @@ async function buildShareImage(rosterObj, total, rating) {
       const titleText = `${g.label}!`;
       const subText = `${yearsText} \u00b7 +${g.bonus.toFixed(1)} pts`;
 
-      const pillW = 230, pillH = 56;
+      const logoReserve = imgs.length ? (imgs.length > 1 ? 34 : 44) : 0;
+      ctx.font = "700 16px 'Rajdhani', sans-serif";
+      const titleW = ctx.measureText(titleText).width;
+      ctx.font = "600 13px 'Rajdhani', sans-serif";
+      const subW = ctx.measureText(subText).width;
+      const pillW = Math.max(160, Math.min(W - 40, Math.max(titleW, subW) + logoReserve + 40));
+      const pillH = 56;
       const pillX = Math.max(20, Math.min(W - pillW - 20, labelX - pillW / 2));
       const pillY = labelY - pillH / 2;
 
-      ctx.fillStyle = '#ececec';
+      const tierColor = TIER_HEX[g.colorTier];
+      ctx.fillStyle = mixHexColors(tierColor, '#f3f0f8', 0.22);
       drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
       ctx.fill();
-      ctx.strokeStyle = '#b0a99a';
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = tierColor;
+      ctx.lineWidth = 2;
       drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
       ctx.stroke();
 
@@ -1600,7 +1629,7 @@ async function buildShareImage(rosterObj, total, rating) {
       ctx.font = "700 16px 'Rajdhani', sans-serif";
       ctx.fillText(titleText, textCenterX, pillY + 25);
 
-      ctx.fillStyle = '#a8481f';
+      ctx.fillStyle = tierColor;
       ctx.font = "600 13px 'Rajdhani', sans-serif";
       ctx.fillText(subText, textCenterX, pillY + 44);
     });
