@@ -1871,7 +1871,8 @@ async function buildShareImage(rosterObj, total, rating, mode) {
   const rivalryBlockH = rivalryGroups.length ? (pillGap + rivalryGroups.length * rivalryRowH) : 0;
 
   const W = 1200;
-  const cardY = 310 + rivalryBlockH + (isExpert ? 46 : 0), cardH = 340; // shift down to make room for rivalry pills above (and the expert badge)
+  const headerH = 92 + (isExpert ? 79 : 0) + 46 + 97 + 46 + 44; // title (+ badge) + label + score + rating + gap, mirrors the drawing below
+  const cardY = headerH + rivalryBlockH, cardH = 340; // shift down to make room for rivalry pills above (and the expert badge)
   const footerY = cardY + cardH + 50 + synergyBlockH;
   const H = footerY + 30;
 
@@ -1901,33 +1902,42 @@ async function buildShareImage(rosterObj, total, rating, mode) {
   } else {
     ctx.fillStyle = '#f0ede8';
   }
-  ctx.fillText('82 and d0ta', W / 2, 92);
+  const titleY = 92;
+  ctx.fillText('82 and d0ta', W / 2, titleY);
 
-  ctx.fillStyle = '#948da3';
-  ctx.font = "600 18px 'Rajdhani', sans-serif";
-  ctx.fillText('TEAM SCORE', W / 2, 138);
-
-  const scoreGrad = ctx.createLinearGradient(W / 2 - 180, 175, W / 2 + 180, 240);
-  scoreGrad.addColorStop(0, '#ff8000');
-  scoreGrad.addColorStop(1, '#a335ee');
-  ctx.fillStyle = scoreGrad;
-  ctx.font = "700 92px 'Rajdhani', sans-serif";
-  ctx.fillText(total.toFixed(1), W / 2, 235);
-
-  ctx.fillStyle = '#ff8000';
-  ctx.font = "700 28px 'Rajdhani', sans-serif";
-  ctx.fillText(rating, W / 2, 274);
-
+  // EXPERT MODE badge -- same size as the title and stacked right below
+  // it, matching the live results header's layout
+  let afterTitleY = titleY;
   if (isExpert) {
     const badgeText = 'EXPERT MODE';
-    ctx.font = "700 34px 'Rajdhani', sans-serif";
+    const badgeY = titleY + 79;
+    ctx.font = "700 66px 'Rajdhani', sans-serif";
     const badgeWidth = ctx.measureText(badgeText).width;
     const badgeGrad = ctx.createLinearGradient(W / 2 - badgeWidth / 2, 0, W / 2 + badgeWidth / 2, 0);
     badgeGrad.addColorStop(0, '#ff2e2e');
     badgeGrad.addColorStop(1, '#6e0000');
     ctx.fillStyle = badgeGrad;
-    ctx.fillText(badgeText, W / 2, 316);
+    ctx.fillText(badgeText, W / 2, badgeY);
+    afterTitleY = badgeY;
   }
+
+  const labelY = afterTitleY + 46;
+  ctx.fillStyle = '#948da3';
+  ctx.font = "600 18px 'Rajdhani', sans-serif";
+  ctx.fillText('TEAM SCORE', W / 2, labelY);
+
+  const scoreY = labelY + 97;
+  const scoreGrad = ctx.createLinearGradient(W / 2 - 180, scoreY - 60, W / 2 + 180, scoreY + 5);
+  scoreGrad.addColorStop(0, '#ff8000');
+  scoreGrad.addColorStop(1, '#a335ee');
+  ctx.fillStyle = scoreGrad;
+  ctx.font = "700 92px 'Rajdhani', sans-serif";
+  ctx.fillText(total.toFixed(1), W / 2, scoreY);
+
+  const ratingY = scoreY + 46;
+  ctx.fillStyle = '#ff8000';
+  ctx.font = "700 40px 'Rajdhani', sans-serif";
+  ctx.fillText(rating, W / 2, ratingY);
 
   // player card X-positions, computed early since rivalry pills (drawn
   // above the cards) need to know where to point their connecting lines
