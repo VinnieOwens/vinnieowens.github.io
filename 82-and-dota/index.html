@@ -71,6 +71,10 @@ h1 {
   margin: -2px 0 14px;
 }
 
+.mode-badge.mode-badge-final {
+  background: linear-gradient(90deg, #ff2e2e, #6e0000);
+}
+
 .mode-badge:empty {
   display: none;
 }
@@ -750,10 +754,14 @@ h1 {
   font-weight: 700;
   font-size: 4rem;
   line-height: 1.1;
-  background: linear-gradient(135deg, #ff2e2e, #6e0000);
+  background: linear-gradient(135deg, var(--legendary), var(--epic));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+
+.score-hero .score-number.expert-score {
+  background: linear-gradient(135deg, #ff2e2e, #6e0000);
 }
 
 .rating-label {
@@ -849,7 +857,7 @@ footer {
   <div id="finalStage" class="hidden">
     <div id="shareCapture">
       <div class="share-brand">82 and d0ta</div>
-      <div class="mode-badge" id="modeBadgeFinal"></div>
+      <div class="mode-badge mode-badge-final" id="modeBadgeFinal"></div>
       <div class="score-hero">
         <div class="score-label">Team Score</div>
         <div class="score-number" id="teamScore">0</div>
@@ -1693,6 +1701,7 @@ function showFinal() {
   const total = computeTeamTotal(roster);
   const rating = getRating(total);
   const scoreEl = document.getElementById('teamScore');
+  scoreEl.classList.toggle('expert-score', gameMode === 'expert');
   animateNumber(scoreEl, total);
   document.getElementById('ratingLabel').textContent = rating;
   document.getElementById('modeBadgeFinal').textContent = gameMode === 'expert' ? 'EXPERT MODE' : '';
@@ -1848,7 +1857,7 @@ async function buildShareImage(rosterObj, total, rating, mode) {
   const rivalryBlockH = rivalryGroups.length ? (pillGap + rivalryGroups.length * rivalryRowH) : 0;
 
   const W = 1200;
-  const cardY = 310 + rivalryBlockH + (isExpert ? 30 : 0), cardH = 340; // shift down to make room for rivalry pills above (and the expert badge)
+  const cardY = 310 + rivalryBlockH + (isExpert ? 46 : 0), cardH = 340; // shift down to make room for rivalry pills above (and the expert badge)
   const footerY = cardY + cardH + 50 + synergyBlockH;
   const H = footerY + 30;
 
@@ -1876,8 +1885,13 @@ async function buildShareImage(rosterObj, total, rating, mode) {
   ctx.fillText('TEAM SCORE', W / 2, 138);
 
   const scoreGrad = ctx.createLinearGradient(W / 2 - 180, 175, W / 2 + 180, 240);
-  scoreGrad.addColorStop(0, '#ff2e2e');
-  scoreGrad.addColorStop(1, '#6e0000');
+  if (isExpert) {
+    scoreGrad.addColorStop(0, '#ff2e2e');
+    scoreGrad.addColorStop(1, '#6e0000');
+  } else {
+    scoreGrad.addColorStop(0, '#ff8000');
+    scoreGrad.addColorStop(1, '#a335ee');
+  }
   ctx.fillStyle = scoreGrad;
   ctx.font = "700 92px 'Rajdhani', sans-serif";
   ctx.fillText(total.toFixed(1), W / 2, 235);
@@ -1887,9 +1901,14 @@ async function buildShareImage(rosterObj, total, rating, mode) {
   ctx.fillText(rating, W / 2, 274);
 
   if (isExpert) {
-    ctx.fillStyle = '#a335ee';
-    ctx.font = "700 20px 'Rajdhani', sans-serif";
-    ctx.fillText('EXPERT MODE', W / 2, 302);
+    const badgeText = 'EXPERT MODE';
+    ctx.font = "700 34px 'Rajdhani', sans-serif";
+    const badgeWidth = ctx.measureText(badgeText).width;
+    const badgeGrad = ctx.createLinearGradient(W / 2 - badgeWidth / 2, 0, W / 2 + badgeWidth / 2, 0);
+    badgeGrad.addColorStop(0, '#ff2e2e');
+    badgeGrad.addColorStop(1, '#6e0000');
+    ctx.fillStyle = badgeGrad;
+    ctx.fillText(badgeText, W / 2, 316);
   }
 
   // player card X-positions, computed early since rivalry pills (drawn
