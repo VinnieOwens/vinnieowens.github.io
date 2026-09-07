@@ -432,6 +432,10 @@ h1 {
   background: color-mix(in srgb, var(--tier-color, var(--uncommon)) 14%, var(--panel));
 }
 
+.role-pip.filled.expert-pip {
+  border-color: #ff2e2e;
+}
+
 .role-pip .pip-label {
   font-family: 'Rajdhani', sans-serif;
   font-weight: 600;
@@ -1597,12 +1601,15 @@ function resetGame() {
 function renderRoleBar() {
   const bar = document.getElementById('roleBar');
   bar.innerHTML = '';
+  const isExpert = gameMode === 'expert';
+  const draftOngoing = isExpert && expertDraftActive; // still picking -- hide rarity; once false, results are showing
   for (const role of ROLE_ORDER) {
     const filled = !!roster[role];
     const pip = document.createElement('div');
-    pip.className = 'role-pip' + (filled ? ' filled' : '');
+    pip.className = 'role-pip' + (filled ? ' filled' : '') + (filled && isExpert ? ' expert-pip' : '');
     if (filled) {
-      pip.style.setProperty('--tier-color', TIER_VARS[roster[role].tier].color);
+      const tv = draftOngoing ? TIER_VARS.Unranked : TIER_VARS[roster[role].tier];
+      pip.style.setProperty('--tier-color', tv.color);
     }
     pip.innerHTML = `<div class="pip-label">${ROLE_NAMES[role]}</div>
                       <div class="pip-name">${filled ? roster[role].player_name : '—'}</div>`;
@@ -1697,6 +1704,7 @@ function showFinal() {
   const finalStage = document.getElementById('finalStage');
   finalStage.classList.remove('hidden');
   expertDraftActive = false; // draft is done -- safe to leave the tab now
+  renderRoleBar(); // re-render now that expertDraftActive is false, so pips reveal true tier colors
 
   const total = computeTeamTotal(roster);
   const rating = getRating(total);
