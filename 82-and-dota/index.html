@@ -57,12 +57,40 @@ h1 {
   margin: 0 0 28px;
 }
 
+.mode-badge {
+  text-align: center;
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 2.1rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--legendary), var(--epic));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  margin: -2px 0 14px;
+}
+
+.mode-badge:empty {
+  display: none;
+}
+
 /* ---- Tabs ---- */
 .tab-bar {
   display: flex;
   justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 20px;
+}
+
+.tab-separator {
+  color: var(--text-muted);
+  font-size: 1.4rem;
+  font-weight: 300;
+  margin: 0 4px;
+  user-select: none;
 }
 
 .tab-btn {
@@ -722,7 +750,7 @@ h1 {
   font-weight: 700;
   font-size: 4rem;
   line-height: 1.1;
-  background: linear-gradient(135deg, var(--legendary), var(--epic));
+  background: linear-gradient(135deg, #ff2e2e, #6e0000);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -800,12 +828,15 @@ footer {
 </head>
 <body>
 <div class="tab-bar">
-  <button class="tab-btn active" id="tabGameBtn">Play the Game</button>
+  <button class="tab-btn active" id="tabClassicBtn">Classic Mode</button>
+  <button class="tab-btn" id="tabExpertBtn">Expert Mode</button>
+  <span class="tab-separator">|</span>
   <button class="tab-btn" id="tabHowBtn">How It Works</button>
   <button class="tab-btn" id="tabDbBtn">Player Database</button>
 </div>
 <div class="wrap" id="gameTab">
   <h1>82 and d0ta</h1>
+  <div class="mode-badge" id="modeBadge"></div>
   <p class="subtitle">Draft a 5-man roster from Dota's TI history. Can your team claim the Aegis?</p>
 
   <div class="role-bar" id="roleBar"></div>
@@ -818,6 +849,7 @@ footer {
   <div id="finalStage" class="hidden">
     <div id="shareCapture">
       <div class="share-brand">82 and d0ta</div>
+      <div class="mode-badge" id="modeBadgeFinal"></div>
       <div class="score-hero">
         <div class="score-label">Team Score</div>
         <div class="score-number" id="teamScore">0</div>
@@ -907,19 +939,24 @@ footer {
       </div>
     </li>
     <li>
-      <h3>5) Clean up the player pool</h3>
+      <h3>5) Scoring, part 3</h3>
+      <p>On top of individual scores, add synergy and rivalry bonuses. Rivalry bonuses are for players who faced off against each other in a TI grand finals, and the score is 5 points per player per year. Most rivalry bonuses will be a simple 10 points, but if more than 2 players were in those grand finals, or if they faced off more than once, the bonus will increase.</p>
+      <p>Synergy bonuses are for players who played together. These bonuses are worth a small baseline value, plus a percentage of the players' individual scores, scaling up in a similar way to rivalry bonuses. More players or more years will earn more points.</p>
+    </li>
+    <li>
+      <h3>6) Clean up the player pool</h3>
       <p>A total of 470 players have competed at TI, but not all of them had a substantial enough impact to have name recognition. Trim the player pool down to keep the game full of recognizable players, ending with a total player pool of 308. Also, some players have changed their names over the years &mdash; make sure their names are up-to-date.</p>
     </li>
     <li>
-      <h3>6) Assign rarity tiers</h3>
+      <h3>7) Assign rarity tiers</h3>
       <p>Rank players against others in their own role, then sort into 5 tiers, based on their score percentile: Legendary, Epic, Rare, Uncommon, Common.</p>
     </li>
     <li>
-      <h3>7) Build the drafting system</h3>
+      <h3>8) Build the drafting system</h3>
       <p>Being offered a Legendary should be rare, but not vanishingly so. Playtesting resulted in the values the game runs off of now, which "feel right." Make sure the player isn't offered a role they already have filled.</p>
     </li>
     <li>
-      <h3>8) Score the built team</h3>
+      <h3>9) Score the built team</h3>
       <p>A simple sum of player scores, and then a rating based on the range that outcome fits into.</p>
     </li>
   </ol>
@@ -1485,11 +1522,13 @@ function getRating(score) {
   return label;
 }
 
-const RUNS_STORAGE_KEY = 'dotaRosterPastRuns';
+let gameMode = 'classic'; // 'classic' | 'expert' -- which draft mode is currently active
 
-function loadRunsFromStorage() {
+const RUNS_STORAGE_KEYS = { classic: 'dotaRosterPastRuns', expert: 'dotaRosterPastRunsExpert' };
+
+function loadRunsFromStorage(key) {
   try {
-    const raw = localStorage.getItem(RUNS_STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : [];
   } catch (err) {
     return []; // private browsing, storage disabled, or corrupted data
@@ -1498,14 +1537,20 @@ function loadRunsFromStorage() {
 
 function saveRunsToStorage() {
   try {
-    localStorage.setItem(RUNS_STORAGE_KEY, JSON.stringify(pastRuns));
+    localStorage.setItem(RUNS_STORAGE_KEYS[gameMode], JSON.stringify(pastRuns));
   } catch (err) {
     // storage full, disabled, or private browsing -- fail silently,
     // the game still works fine without persistence
   }
 }
 
-let pastRuns = loadRunsFromStorage(); // {score, rating, roster}, persisted across visits
+// Each mode keeps its own leaderboard, loaded once and kept in memory.
+// `pastRuns` always references whichever mode's array is currently active.
+let pastRunsByMode = {
+  classic: loadRunsFromStorage(RUNS_STORAGE_KEYS.classic),
+  expert: loadRunsFromStorage(RUNS_STORAGE_KEYS.expert),
+};
+let pastRuns = pastRunsByMode[gameMode];
 let latestRun = null; // reference to whichever run was just completed
 
 let pools = {};       // role -> remaining players
@@ -1513,16 +1558,32 @@ let openRoles = [];
 let roster = {};
 let currentOffers = [];
 let busy = false;
+let expertDraftActive = false; // true while an Expert Mode draft is in progress and unfinished
+
+// Reflects the active game mode in the header, the results page, and the
+// leaderboard heading. Called whenever the mode changes or the draft resets.
+function applyModeUI() {
+  const label = gameMode === 'expert' ? 'EXPERT MODE' : '';
+  const badge = document.getElementById('modeBadge');
+  if (badge) badge.textContent = label;
+  const heading = document.querySelector('#sidebar h2');
+  if (heading) heading.textContent = gameMode === 'expert' ? 'Past Run Leaderboard \u2014 Expert' : 'Past Run Leaderboard';
+}
 
 function resetGame() {
+  pastRuns = pastRunsByMode[gameMode];
+  latestRun = null;
+  applyModeUI();
   pools = {};
   for (const role of ROLE_ORDER) pools[role] = PLAYERS.filter(p => p.role === role);
   openRoles = [...ROLE_ORDER];
   roster = {};
+  expertDraftActive = (gameMode === 'expert'); // locks tab-switching until the draft finishes
   document.getElementById('finalStage').classList.add('hidden');
   document.getElementById('draftStage').classList.remove('hidden');
   renderRoleBar();
   rollNext();
+  renderSidebar();
 }
 
 function renderRoleBar() {
@@ -1573,14 +1634,14 @@ function teamLogoUrl(p, name) {
   return (p.team_logos && p.team_logos[name]) || TEAM_LOGOS[name] || '';
 }
 
-function cardHTML(p) {
+function cardHTML(p, showTier) {
   const logos = [...p.teams].sort()
     .map(t => teamLogoUrl(p, t))
     .filter(Boolean)
     .map(url => `<img src="${url}" alt="" referrerpolicy="no-referrer">`)
     .join('');
   return `
-    <div class="tier-badge">${p.tier}</div>
+    ${showTier ? `<div class="tier-badge">${p.tier}</div>` : ''}
     <div class="card-logos">${logos}</div>
     <div class="card-name">${p.player_name}</div>
     <div class="card-role">${ROLE_NAMES[p.role]}</div>
@@ -1590,13 +1651,14 @@ function cardHTML(p) {
 function renderCards() {
   const container = document.getElementById('cards');
   container.innerHTML = '';
+  const showTier = gameMode !== 'expert';
   currentOffers.forEach((p) => {
-    const tv = TIER_VARS[p.tier];
+    const tv = showTier ? TIER_VARS[p.tier] : TIER_VARS.Unranked;
     const el = document.createElement('div');
     el.className = 'card';
     el.style.setProperty('--tier-color', tv.color);
     el.style.setProperty('--tier-glow', tv.glow);
-    el.innerHTML = cardHTML(p);
+    el.innerHTML = cardHTML(p, showTier);
     el.addEventListener('click', () => pick(p, el));
     container.appendChild(el);
   });
@@ -1626,26 +1688,30 @@ function showFinal() {
   document.getElementById('draftStage').classList.add('hidden');
   const finalStage = document.getElementById('finalStage');
   finalStage.classList.remove('hidden');
+  expertDraftActive = false; // draft is done -- safe to leave the tab now
 
   const total = computeTeamTotal(roster);
   const rating = getRating(total);
   const scoreEl = document.getElementById('teamScore');
   animateNumber(scoreEl, total);
   document.getElementById('ratingLabel').textContent = rating;
+  document.getElementById('modeBadgeFinal').textContent = gameMode === 'expert' ? 'EXPERT MODE' : '';
 
+  const showTier = gameMode !== 'expert';
   const grid = document.getElementById('rosterGrid');
   grid.innerHTML = '';
   grid.style.marginBottom = ''; // reset before re-measuring for the overlays
   grid.style.marginTop = '';
   for (const role of ROLE_ORDER) {
     const p = roster[role];
-    const tv = TIER_VARS[p.tier];
+    const tv = showTier ? TIER_VARS[p.tier] : TIER_VARS.Unranked;
+    const tierHexForBg = showTier ? TIER_HEX[p.tier] : TIER_HEX.Unranked;
     const card = document.createElement('div');
     card.className = 'roster-card';
     card.style.setProperty('--tier-color', tv.color);
     card.style.setProperty('--tier-glow', tv.glow);
-    card.style.backgroundColor = mixHexColors(TIER_HEX[p.tier], '#f3f0f8', 0.32);
-    card.innerHTML = cardHTML(p);
+    card.style.backgroundColor = mixHexColors(tierHexForBg, '#f3f0f8', 0.32);
+    card.innerHTML = cardHTML(p, showTier);
     grid.appendChild(card);
   }
 
@@ -1655,7 +1721,7 @@ function showFinal() {
 }
 
 function recordRun(score, rating) {
-  const run = { score, rating, roster: { ...roster } };
+  const run = { score, rating, roster: { ...roster }, mode: gameMode };
   pastRuns.push(run);
   latestRun = run;
   saveRunsToStorage();
@@ -1681,7 +1747,8 @@ function renderSidebar() {
 
     const rosterLines = ROLE_ORDER.map(role => {
       const p = r.roster[role];
-      return `<div>${ROLE_NAMES[role]}: <b style="color:${TIER_VARS[p.tier].color}">${p.player_name}</b></div>`;
+      const tierColor = r.mode === 'expert' ? TIER_VARS.Unranked.color : TIER_VARS[p.tier].color;
+      return `<div>${ROLE_NAMES[role]}: <b style="color:${tierColor}">${p.player_name}</b></div>`;
     }).join('');
 
     const shareStatusId = `run-share-status-${idx}`;
@@ -1701,7 +1768,7 @@ function renderSidebar() {
     details.querySelector('.run-share-btn').addEventListener('click', (e) => {
       e.preventDefault(); // don't toggle the <details> open/closed
       const statusEl = details.querySelector(`#${shareStatusId}`);
-      shareRoster(r.roster, r.score, r.rating, statusEl);
+      shareRoster(r.roster, r.score, r.rating, statusEl, r.mode || gameMode);
     });
 
     list.appendChild(details);
@@ -1767,8 +1834,9 @@ function measureTextWidth(text, weight, size, family) {
   return _measureCtx.measureText(text).width;
 }
 
-async function buildShareImage(rosterObj, total, rating) {
+async function buildShareImage(rosterObj, total, rating, mode) {
   if (document.fonts && document.fonts.ready) await document.fonts.ready;
+  const isExpert = mode === 'expert';
 
   const { groups: synergyGroups } = computeSynergyBonus(rosterObj);
   const synergyRowH = 76;
@@ -1780,7 +1848,7 @@ async function buildShareImage(rosterObj, total, rating) {
   const rivalryBlockH = rivalryGroups.length ? (pillGap + rivalryGroups.length * rivalryRowH) : 0;
 
   const W = 1200;
-  const cardY = 310 + rivalryBlockH, cardH = 340; // shift down to make room for rivalry pills above
+  const cardY = 310 + rivalryBlockH + (isExpert ? 30 : 0), cardH = 340; // shift down to make room for rivalry pills above (and the expert badge)
   const footerY = cardY + cardH + 50 + synergyBlockH;
   const H = footerY + 30;
 
@@ -1808,8 +1876,8 @@ async function buildShareImage(rosterObj, total, rating) {
   ctx.fillText('TEAM SCORE', W / 2, 138);
 
   const scoreGrad = ctx.createLinearGradient(W / 2 - 180, 175, W / 2 + 180, 240);
-  scoreGrad.addColorStop(0, '#ff8000');
-  scoreGrad.addColorStop(1, '#a335ee');
+  scoreGrad.addColorStop(0, '#ff2e2e');
+  scoreGrad.addColorStop(1, '#6e0000');
   ctx.fillStyle = scoreGrad;
   ctx.font = "700 92px 'Rajdhani', sans-serif";
   ctx.fillText(total.toFixed(1), W / 2, 235);
@@ -1817,6 +1885,12 @@ async function buildShareImage(rosterObj, total, rating) {
   ctx.fillStyle = '#ff8000';
   ctx.font = "700 28px 'Rajdhani', sans-serif";
   ctx.fillText(rating, W / 2, 274);
+
+  if (isExpert) {
+    ctx.fillStyle = '#a335ee';
+    ctx.font = "700 20px 'Rajdhani', sans-serif";
+    ctx.fillText('EXPERT MODE', W / 2, 302);
+  }
 
   // player card X-positions, computed early since rivalry pills (drawn
   // above the cards) need to know where to point their connecting lines
@@ -1850,7 +1924,10 @@ async function buildShareImage(rosterObj, total, rating) {
       }
     }
 
-    rivalryGroups.forEach((g, gi) => {
+    // Pass 1: lay out every pill's geometry/text/logos up front so the
+    // lines (drawn next) know exactly where every pill sits -- including
+    // ones belonging to OTHER groups they need to duck behind.
+    const rivalryLayouts = rivalryGroups.map((g, gi) => {
       const labelY = rivalryBottom - pillGap - gi * rivalryRowH;
       const labelX = g.members.reduce((s, m) => s + posByRole[m.role].cx, 0) / g.members.length;
 
@@ -1875,11 +1952,15 @@ async function buildShareImage(rosterObj, total, rating) {
       const pillX = Math.max(20, Math.min(W - pillW - 20, labelX - pillW / 2));
       const pillY = labelY - pillH / 2;
 
-      // lines FIRST -- any OTHER group's pill (drawn next, on top) will
-      // then sit in front of and occlude whatever part of a line
-      // happens to pass behind it, instead of the line cutting across
-      // the box's face or its logos/text
-      ctx.lineWidth = 3;
+      return { g, gi, labelY, winImg, loseImg, titleText, subText, pillX, pillY, pillW, pillH };
+    });
+
+    // Pass 2: lines for every group. Any OTHER group's pill (drawn
+    // next, on top) will then sit in front of and occlude whatever
+    // part of a line happens to pass behind it, instead of the line
+    // cutting across the box's face or its logos/text.
+    ctx.lineWidth = 3;
+    rivalryLayouts.forEach(({ g, gi, labelY, pillX, pillW }) => {
       g.members.forEach(m => {
         ctx.strokeStyle = rivalryRed;
         ctx.globalAlpha = 0.6;
@@ -1897,8 +1978,10 @@ async function buildShareImage(rosterObj, total, rating) {
         ctx.stroke();
         ctx.globalAlpha = 1;
       });
+    });
 
-      // pill background, on top of every line
+    // Pass 3: pill backgrounds, on top of every line.
+    rivalryLayouts.forEach(({ pillX, pillY, pillW, pillH }) => {
       ctx.fillStyle = mixHexColors(rivalryRed, '#f3f0f8', 0.22);
       drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
       ctx.fill();
@@ -1906,7 +1989,10 @@ async function buildShareImage(rosterObj, total, rating) {
       ctx.lineWidth = 2;
       drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
       ctx.stroke();
+    });
 
+    // Pass 4: logos and text, on top of everything.
+    rivalryLayouts.forEach(({ winImg, loseImg, titleText, subText, pillX, pillY, pillW, pillH }) => {
       if (winImg) ctx.drawImage(winImg, pillX + 8, pillY + pillH / 2 - 16, 32, 32);
       if (loseImg) ctx.drawImage(loseImg, pillX + pillW - 40, pillY + pillH / 2 - 16, 32, 32);
 
@@ -1926,7 +2012,7 @@ async function buildShareImage(rosterObj, total, rating) {
   for (let i = 0; i < ROLE_ORDER.length; i++) {
     const role = ROLE_ORDER[i];
     const p = rosterObj[role];
-    const tierHex = TIER_HEX[p.tier];
+    const tierHex = isExpert ? TIER_HEX.Unranked : TIER_HEX[p.tier];
     const x = marginX + i * (cardW + gap);
     const cx = x + cardW / 2;
 
@@ -1939,9 +2025,11 @@ async function buildShareImage(rosterObj, total, rating) {
     drawRoundedRect(ctx, x, cardY, cardW, cardH, 14);
     ctx.stroke();
 
-    ctx.fillStyle = tierHex;
-    ctx.font = "700 14px 'Rajdhani', sans-serif";
-    ctx.fillText(p.tier.toUpperCase(), cx, cardY + 32);
+    if (!isExpert) {
+      ctx.fillStyle = tierHex;
+      ctx.font = "700 14px 'Rajdhani', sans-serif";
+      ctx.fillText(p.tier.toUpperCase(), cx, cardY + 32);
+    }
 
     // team logo(s) -- up to 3 across, matching the in-game logo strip
     const logos = [...p.teams].sort()
@@ -1986,7 +2074,10 @@ async function buildShareImage(rosterObj, total, rating) {
       }
     }
 
-    synergyGroups.forEach((g, gi) => {
+    // Pass 1: lay out every pill's geometry/text/logos up front so the
+    // lines (drawn next) know exactly where every pill sits -- including
+    // ones belonging to OTHER groups they need to duck behind.
+    const synergyLayouts = synergyGroups.map((g, gi) => {
       const labelY = synergyBottom + pillGap + gi * synergyRowH;
       const labelX = g.members.reduce((s, m) => s + posByRole[m.role].cx, 0) / g.members.length;
       const tierColor = TIER_HEX[g.colorTier];
@@ -2012,11 +2103,15 @@ async function buildShareImage(rosterObj, total, rating) {
       const pillX = Math.max(20, Math.min(W - pillW - 20, labelX - pillW / 2));
       const pillY = labelY - pillH / 2;
 
-      // lines FIRST -- any OTHER group's pill (drawn next, on top) will
-      // then sit in front of and occlude whatever part of a line
-      // happens to pass behind it, instead of the line cutting across
-      // the box's face or its logos/text
-      ctx.lineWidth = 3;
+      return { g, gi, labelY, tierColor, imgs, titleText, subText, pillX, pillY, pillW, pillH };
+    });
+
+    // Pass 2: lines for every group. Any OTHER group's pill (drawn
+    // next, on top) will then sit in front of and occlude whatever
+    // part of a line happens to pass behind it, instead of the line
+    // cutting across the box's face or its logos/text.
+    ctx.lineWidth = 3;
+    synergyLayouts.forEach(({ g, gi, labelY, tierColor, pillX, pillW }) => {
       g.members.forEach(m => {
         ctx.strokeStyle = tierColor;
         ctx.globalAlpha = 0.6;
@@ -2034,8 +2129,10 @@ async function buildShareImage(rosterObj, total, rating) {
         ctx.stroke();
         ctx.globalAlpha = 1;
       });
+    });
 
-      // pill background, on top of every line
+    // Pass 3: pill backgrounds, on top of every line.
+    synergyLayouts.forEach(({ tierColor, pillX, pillY, pillW, pillH }) => {
       ctx.fillStyle = mixHexColors(tierColor, '#f3f0f8', 0.22);
       drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
       ctx.fill();
@@ -2043,7 +2140,10 @@ async function buildShareImage(rosterObj, total, rating) {
       ctx.lineWidth = 2;
       drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
       ctx.stroke();
+    });
 
+    // Pass 4: logos and text, on top of everything.
+    synergyLayouts.forEach(({ tierColor, imgs, titleText, subText, pillX, pillY, pillW, pillH }) => {
       let textCenterX = pillX + pillW / 2 + (imgs.length ? 14 : 0);
       if (imgs.length) {
         const logoSize = imgs.length > 1 ? 22 : 32;
@@ -2076,12 +2176,12 @@ async function buildShareImage(rosterObj, total, rating) {
   return canvas;
 }
 
-async function shareRoster(rosterObj, total, rating, statusEl) {
+async function shareRoster(rosterObj, total, rating, statusEl, mode) {
   statusEl.textContent = 'Building image...';
 
   let canvas;
   try {
-    canvas = await buildShareImage(rosterObj, total, rating);
+    canvas = await buildShareImage(rosterObj, total, rating, mode);
   } catch (err) {
     statusEl.textContent = "Couldn't build image.";
     setTimeout(() => { statusEl.textContent = ''; }, 3000);
@@ -2121,21 +2221,37 @@ async function shareRoster(rosterObj, total, rating, statusEl) {
 document.getElementById('shareBtn').addEventListener('click', () => {
   const total = computeTeamTotal(roster);
   const rating = getRating(total);
-  shareRoster(roster, total, rating, document.getElementById('shareStatus'));
+  shareRoster(roster, total, rating, document.getElementById('shareStatus'), gameMode);
 });
 
 // ---- Tabs ----
+let activeTab = null; // tracks whichever tab is currently shown, for the expert-mode forfeit prompt
+
 function showTab(tab) {
-  document.getElementById('gameTab').classList.toggle('hidden', tab !== 'game');
+  if (tab === activeTab) return;
+  if (activeTab === 'expert' && expertDraftActive) {
+    const ok = confirm('Leaving this tab will forfeit your current Expert Mode draft. Are you sure?');
+    if (!ok) return;
+    expertDraftActive = false; // forfeited
+  }
+  activeTab = tab;
+  const isGame = (tab === 'classic' || tab === 'expert');
+  if (isGame && tab !== gameMode) {
+    gameMode = tab;
+    resetGame();
+  }
+  document.getElementById('gameTab').classList.toggle('hidden', !isGame);
   document.getElementById('dbTab').classList.toggle('hidden', tab !== 'db');
   document.getElementById('howTab').classList.toggle('hidden', tab !== 'how');
-  document.getElementById('sidebar').classList.toggle('hidden', tab !== 'game');
-  document.body.classList.toggle('has-sidebar', tab === 'game');
-  document.getElementById('tabGameBtn').classList.toggle('active', tab === 'game');
+  document.getElementById('sidebar').classList.toggle('hidden', !isGame);
+  document.body.classList.toggle('has-sidebar', isGame);
+  document.getElementById('tabClassicBtn').classList.toggle('active', tab === 'classic');
+  document.getElementById('tabExpertBtn').classList.toggle('active', tab === 'expert');
   document.getElementById('tabDbBtn').classList.toggle('active', tab === 'db');
   document.getElementById('tabHowBtn').classList.toggle('active', tab === 'how');
 }
-document.getElementById('tabGameBtn').addEventListener('click', () => showTab('game'));
+document.getElementById('tabClassicBtn').addEventListener('click', () => showTab('classic'));
+document.getElementById('tabExpertBtn').addEventListener('click', () => showTab('expert'));
 document.getElementById('tabDbBtn').addEventListener('click', () => showTab('db'));
 document.getElementById('tabHowBtn').addEventListener('click', () => showTab('how'));
 
@@ -2387,7 +2503,7 @@ document.querySelectorAll('.role-filter-btn').forEach(btn => {
   });
 });
 
-showTab('game');
+showTab('classic');
 resetGame();
 renderSidebar(); // show any runs loaded from a previous visit right away
 </script>
