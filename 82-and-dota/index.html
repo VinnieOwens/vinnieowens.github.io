@@ -713,6 +713,18 @@ h1 {
   background: rgba(240,237,232,0.14);
 }
 
+.replay-heading {
+  text-align: center;
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 1.8rem;
+  margin: 0 0 4px;
+}
+
+#replayModeBadge.mode-badge-final {
+  font-size: 2.1rem;
+}
+
 .run-share-status {
   font-size: 0.72rem;
   color: var(--uncommon);
@@ -879,6 +891,17 @@ footer {
       <button class="primary" id="restartBtn">Draft Again</button>
       <button class="primary" id="shareBtn">Share</button>
       <span class="share-status" id="shareStatus"></span>
+    </div>
+  </div>
+
+  <div id="replayStage" class="hidden">
+    <h2 class="replay-heading">Ghost Replay</h2>
+    <div class="mode-badge" id="replayModeBadge"></div>
+    <p class="prompt" id="replayPrompt">Replaying draft...</p>
+    <div class="cards" id="replayCards"></div>
+    <div class="roster-grid hidden" id="replayRosterGrid"></div>
+    <div class="actions hidden" id="replayActions">
+      <button class="primary" id="replayCloseBtn">Close Replay</button>
     </div>
   </div>
 
@@ -1577,6 +1600,7 @@ let roster = {};
 let currentOffers = [];
 let busy = false;
 let expertDraftActive = false; // true while an Expert Mode draft is in progress and unfinished
+let draftHistory = []; // [{offers: [player_page,...], picked: player_page}, ...] -- powers Ghost Replay
 
 // Reflects the active game mode in the header, the results page, and the
 // leaderboard heading. Called whenever the mode changes or the draft resets.
@@ -1589,6 +1613,7 @@ function applyModeUI() {
 }
 
 function resetGame() {
+  exitReplay(); // in case a ghost replay was open when "Draft Again" was clicked
   pastRuns = pastRunsByMode[gameMode];
   latestRun = null;
   applyModeUI();
@@ -1596,6 +1621,7 @@ function resetGame() {
   for (const role of ROLE_ORDER) pools[role] = PLAYERS.filter(p => p.role === role);
   openRoles = [...ROLE_ORDER];
   roster = {};
+  draftHistory = [];
   expertDraftActive = (gameMode === 'expert'); // locks tab-switching until the draft finishes
   document.getElementById('gameHeader').classList.remove('hidden');
   document.getElementById('finalStage').classList.add('hidden');
@@ -1695,6 +1721,8 @@ function pick(player, el) {
     else c.classList.add('fade-out');
   });
 
+  draftHistory.push({ offers: currentOffers.map(p => p.player_page), picked: player.player_page });
+
   roster[player.role] = player;
   pools[player.role] = pools[player.role].filter(p => p.player_name !== player.player_name);
   openRoles = openRoles.filter(r => r !== player.role);
@@ -1744,12 +1772,41 @@ function showFinal() {
   recordRun(total, rating);
 }
 
+const MAX_RUNS_PER_MODE = 50;
+
 function recordRun(score, rating) {
-  const run = { score, rating, roster: { ...roster }, mode: gameMode };
+  const rosterRef = {};
+  for (const role of ROLE_ORDER) rosterRef[role] = roster[role].player_page;
+  const run = { score, rating, roster: rosterRef, mode: gameMode, history: draftHistory.slice() };
   pastRuns.push(run);
   latestRun = run;
+  pruneRuns();
   saveRunsToStorage();
   renderSidebar();
+}
+
+// Keeps the leaderboard from growing forever: trims to the top scorers,
+// but always keeps the run you just completed even if it didn't make the cut.
+function pruneRuns() {
+  if (pastRuns.length <= MAX_RUNS_PER_MODE) return;
+  const sorted = [...pastRuns].sort((a, b) => b.score - a.score);
+  const kept = sorted.slice(0, MAX_RUNS_PER_MODE);
+  if (latestRun && !kept.includes(latestRun)) kept[kept.length - 1] = latestRun;
+  pastRuns.length = 0;
+  pastRuns.push(...kept);
+}
+
+// Stored runs keep only a player_page reference per role (not the full
+// player record, which already lives in PLAYERS/EXTRA_PLAYERS) -- this
+// resolves that back into full player objects for display/sharing/replay.
+// Falls back gracefully for older saved runs that still hold full objects.
+function resolveRosterRef(rosterRef) {
+  const resolved = {};
+  for (const role of ROLE_ORDER) {
+    const entry = rosterRef[role];
+    resolved[role] = (entry && typeof entry === 'object') ? entry : ALL_PLAYERS.find(p => p.player_page === entry);
+  }
+  return resolved;
 }
 
 function renderSidebar() {
@@ -1769,12 +1826,14 @@ function renderSidebar() {
     const details = document.createElement('details');
     details.className = 'run-details' + (isLatest ? ' current' : '');
 
+    const resolvedRoster = resolveRosterRef(r.roster);
     const rosterLines = ROLE_ORDER.map(role => {
-      const p = r.roster[role];
+      const p = resolvedRoster[role];
       return `<div>${ROLE_NAMES[role]}: <b style="color:${TIER_VARS[p.tier].color}">${p.player_name}</b></div>`;
     }).join('');
 
     const shareStatusId = `run-share-status-${idx}`;
+    const canReplay = Array.isArray(r.history) && r.history.length > 0; // older saved runs won't have this
     details.innerHTML = `
       <summary>
         <span class="run-rank">${idx + 1}</span>
@@ -1784,6 +1843,7 @@ function renderSidebar() {
       <div class="run-roster">${rosterLines}</div>
       <div class="run-share-row">
         <button class="run-share-btn">Share</button>
+        ${canReplay ? '<button class="run-share-btn run-replay-btn">Replay</button>' : ''}
         <span class="run-share-status" id="${shareStatusId}"></span>
       </div>
     `;
@@ -1791,8 +1851,17 @@ function renderSidebar() {
     details.querySelector('.run-share-btn').addEventListener('click', (e) => {
       e.preventDefault(); // don't toggle the <details> open/closed
       const statusEl = details.querySelector(`#${shareStatusId}`);
-      shareRoster(r.roster, r.score, r.rating, statusEl, r.mode || gameMode);
+      shareRoster(resolvedRoster, r.score, r.rating, statusEl, r.mode || gameMode);
     });
+
+    const replayBtn = details.querySelector('.run-replay-btn');
+    if (replayBtn) {
+      replayBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (!confirmLeaveExpertDraftIfNeeded()) return;
+        startReplay(resolvedRoster, r.history, r.mode || gameMode);
+      });
+    }
 
     list.appendChild(details);
     if (isLatest) scrollTarget = details;
@@ -1800,6 +1869,93 @@ function renderSidebar() {
 
   if (scrollTarget) scrollTarget.scrollIntoView({ block: 'nearest' });
 }
+
+// ---- Ghost Replay ----
+let replayPrevState = null; // which of header/draftStage/finalStage were visible before entering, so Close can restore them
+
+function enterReplay() {
+  replayPrevState = {
+    header: !document.getElementById('gameHeader').classList.contains('hidden'),
+    draft: !document.getElementById('draftStage').classList.contains('hidden'),
+    final: !document.getElementById('finalStage').classList.contains('hidden'),
+  };
+  document.getElementById('gameHeader').classList.add('hidden');
+  document.getElementById('draftStage').classList.add('hidden');
+  document.getElementById('finalStage').classList.add('hidden');
+  document.getElementById('replayStage').classList.remove('hidden');
+}
+
+function exitReplay() {
+  document.getElementById('replayStage').classList.add('hidden');
+  if (replayPrevState) {
+    document.getElementById('gameHeader').classList.toggle('hidden', !replayPrevState.header);
+    document.getElementById('draftStage').classList.toggle('hidden', !replayPrevState.draft);
+    document.getElementById('finalStage').classList.toggle('hidden', !replayPrevState.final);
+  }
+  replayPrevState = null;
+}
+
+function startReplay(rosterFull, history, mode) {
+  enterReplay();
+  document.getElementById('replayModeBadge').textContent = mode === 'expert' ? 'EXPERT MODE' : '';
+  document.getElementById('replayModeBadge').classList.toggle('mode-badge-final', mode === 'expert');
+  document.getElementById('replayRosterGrid').classList.add('hidden');
+  document.getElementById('replayRosterGrid').innerHTML = '';
+  document.getElementById('replayActions').classList.add('hidden');
+  playReplayRound(rosterFull, history, mode, 0);
+}
+
+function playReplayRound(rosterFull, history, mode, idx) {
+  if (idx >= history.length) { finishReplay(rosterFull, mode); return; }
+  const round = history[idx];
+  const showTier = mode !== 'expert';
+  const offersFull = round.offers.map(page => ALL_PLAYERS.find(p => p.player_page === page)).filter(Boolean);
+
+  document.getElementById('replayPrompt').textContent = `Pick ${idx + 1} of ${history.length}`;
+  const container = document.getElementById('replayCards');
+  container.innerHTML = '';
+  const cardEls = offersFull.map(p => {
+    const tv = showTier ? TIER_VARS[p.tier] : TIER_VARS.Unranked;
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.style.setProperty('--tier-color', tv.color);
+    el.style.setProperty('--tier-glow', tv.glow);
+    el.innerHTML = cardHTML(p, showTier);
+    container.appendChild(el);
+    return { el, p };
+  });
+
+  setTimeout(() => {
+    cardEls.forEach(({ el, p }) => {
+      el.classList.add(p.player_page === round.picked ? 'picked' : 'fade-out');
+    });
+    setTimeout(() => playReplayRound(rosterFull, history, mode, idx + 1), 650);
+  }, 900);
+}
+
+function finishReplay(rosterFull, mode) {
+  document.getElementById('replayCards').innerHTML = '';
+  document.getElementById('replayPrompt').textContent = 'Final roster';
+  const isExpert = mode === 'expert';
+  const grid = document.getElementById('replayRosterGrid');
+  grid.innerHTML = '';
+  for (const role of ROLE_ORDER) {
+    const p = rosterFull[role];
+    const tv = TIER_VARS[p.tier];
+    const card = document.createElement('div');
+    card.className = 'roster-card';
+    card.style.setProperty('--tier-color', tv.color);
+    card.style.setProperty('--tier-glow', tv.glow);
+    card.style.backgroundColor = mixHexColors(TIER_HEX[p.tier], '#f3f0f8', 0.32);
+    if (isExpert) card.style.borderColor = '#ff2e2e'; // same expert-result flag used on the real results screen
+    card.innerHTML = cardHTML(p, true);
+    grid.appendChild(card);
+  }
+  grid.classList.remove('hidden');
+  document.getElementById('replayActions').classList.remove('hidden');
+}
+
+document.getElementById('replayCloseBtn').addEventListener('click', exitReplay);
 
 function animateNumber(el, target) {
   const start = 0;
@@ -2272,13 +2428,19 @@ document.getElementById('shareBtn').addEventListener('click', () => {
 // ---- Tabs ----
 let activeTab = null; // tracks whichever tab is currently shown, for the expert-mode forfeit prompt
 
+// Shared by tab-switching and Ghost Replay: both are ways of "leaving" an
+// in-progress Expert Mode draft, so both need the same forfeit prompt.
+function confirmLeaveExpertDraftIfNeeded() {
+  if (!expertDraftActive) return true;
+  const ok = confirm('This will forfeit your current Expert Mode draft. Are you sure?');
+  if (!ok) return false;
+  expertDraftActive = false; // forfeited
+  return true;
+}
+
 function showTab(tab) {
   if (tab === activeTab) return;
-  if (activeTab === 'expert' && expertDraftActive) {
-    const ok = confirm('Leaving this tab will forfeit your current Expert Mode draft. Are you sure?');
-    if (!ok) return;
-    expertDraftActive = false; // forfeited
-  }
+  if (!confirmLeaveExpertDraftIfNeeded()) return;
   activeTab = tab;
   const isGame = (tab === 'classic' || tab === 'expert');
   if (isGame && tab !== gameMode) {
