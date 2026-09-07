@@ -1189,7 +1189,7 @@ function renderSynergyOverlay(rosterObj) {
       const pos = posByRole[m.role];
       const line = document.createElementNS(svgNS, 'path');
       const startY = pos.y - gridRect.height; // relative to svg's own top (100% of grid)
-      line.setAttribute('d', `M${pos.x},${startY} L${pos.x},${labelY} L${labelX},${labelY}`);
+      line.setAttribute('d', `M${pos.x},${startY} L${pos.x},${pillY} L${labelX},${pillY}`);
       line.setAttribute('stroke', lineColor);
       line.setAttribute('stroke-width', '3');
       line.setAttribute('fill', 'none');
@@ -1332,7 +1332,8 @@ function renderRivalryOverlay(rosterObj) {
     g.members.forEach(m => {
       const pos = posByRole[m.role];
       const line = document.createElementNS(svgNS, 'path');
-      line.setAttribute('d', `M${pos.x},${svgHeight} L${pos.x},${labelY} L${labelX},${labelY}`);
+      const pillBottom = pillY + pillH;
+      line.setAttribute('d', `M${pos.x},${svgHeight} L${pos.x},${pillBottom} L${labelX},${pillBottom}`);
       line.setAttribute('stroke', rivalryRed);
       line.setAttribute('stroke-width', '3');
       line.setAttribute('fill', 'none');
@@ -1803,13 +1804,14 @@ async function buildShareImage(rosterObj, total, rating) {
       ctx.stroke();
 
       ctx.lineWidth = 3;
+      const pillBottom = pillY + pillH;
       g.members.forEach(m => {
         ctx.strokeStyle = rivalryRed;
         ctx.globalAlpha = 0.6;
         ctx.beginPath();
         ctx.moveTo(posByRole[m.role], cardY);
-        ctx.lineTo(posByRole[m.role], labelY);
-        ctx.lineTo(labelX, labelY);
+        ctx.lineTo(posByRole[m.role], pillBottom);
+        ctx.lineTo(labelX, pillBottom);
         ctx.stroke();
         ctx.globalAlpha = 1;
       });
@@ -1935,8 +1937,8 @@ async function buildShareImage(rosterObj, total, rating) {
         ctx.globalAlpha = 0.6;
         ctx.beginPath();
         ctx.moveTo(posByRole[m.role], cardY + cardH);
-        ctx.lineTo(posByRole[m.role], labelY);
-        ctx.lineTo(labelX, labelY);
+        ctx.lineTo(posByRole[m.role], pillY);
+        ctx.lineTo(labelX, pillY);
         ctx.stroke();
         ctx.globalAlpha = 1;
       });
