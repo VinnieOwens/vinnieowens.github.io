@@ -72,7 +72,7 @@ h1 {
 }
 
 .mode-badge.mode-badge-final {
-  background: linear-gradient(90deg, #ff2e2e, #6e0000);
+  background-image: linear-gradient(90deg, #ff2e2e, #6e0000);
 }
 
 .mode-badge:empty {
@@ -761,7 +761,7 @@ h1 {
 }
 
 .score-hero .score-number.expert-score {
-  background: linear-gradient(135deg, #ff2e2e, #6e0000);
+  background-image: linear-gradient(135deg, #ff2e2e, #6e0000);
 }
 
 .rating-label {
@@ -1706,21 +1706,21 @@ function showFinal() {
   document.getElementById('ratingLabel').textContent = rating;
   document.getElementById('modeBadgeFinal').textContent = gameMode === 'expert' ? 'EXPERT MODE' : '';
 
-  const showTier = gameMode !== 'expert';
+  const isExpert = gameMode === 'expert';
   const grid = document.getElementById('rosterGrid');
   grid.innerHTML = '';
   grid.style.marginBottom = ''; // reset before re-measuring for the overlays
   grid.style.marginTop = '';
   for (const role of ROLE_ORDER) {
     const p = roster[role];
-    const tv = showTier ? TIER_VARS[p.tier] : TIER_VARS.Unranked;
-    const tierHexForBg = showTier ? TIER_HEX[p.tier] : TIER_HEX.Unranked;
+    const tv = TIER_VARS[p.tier];
     const card = document.createElement('div');
     card.className = 'roster-card';
     card.style.setProperty('--tier-color', tv.color);
     card.style.setProperty('--tier-glow', tv.glow);
-    card.style.backgroundColor = mixHexColors(tierHexForBg, '#f3f0f8', 0.32);
-    card.innerHTML = cardHTML(p, showTier);
+    card.style.backgroundColor = mixHexColors(TIER_HEX[p.tier], '#f3f0f8', 0.32);
+    if (isExpert) card.style.borderColor = '#ff2e2e'; // flag the card as an Expert Mode result -- true rarity is shown again here, only the border calls it out
+    card.innerHTML = cardHTML(p, true);
     grid.appendChild(card);
   }
 
@@ -2031,7 +2031,7 @@ async function buildShareImage(rosterObj, total, rating, mode) {
   for (let i = 0; i < ROLE_ORDER.length; i++) {
     const role = ROLE_ORDER[i];
     const p = rosterObj[role];
-    const tierHex = isExpert ? TIER_HEX.Unranked : TIER_HEX[p.tier];
+    const tierHex = TIER_HEX[p.tier];
     const x = marginX + i * (cardW + gap);
     const cx = x + cardW / 2;
 
@@ -2040,15 +2040,13 @@ async function buildShareImage(rosterObj, total, rating, mode) {
     drawRoundedRect(ctx, x, cardY, cardW, cardH, 14);
     ctx.fill();
     ctx.lineWidth = 4;
-    ctx.strokeStyle = tierHex;
+    ctx.strokeStyle = isExpert ? '#ff2e2e' : tierHex; // flag the card as an Expert Mode result -- true rarity still fills the card, only the border calls it out
     drawRoundedRect(ctx, x, cardY, cardW, cardH, 14);
     ctx.stroke();
 
-    if (!isExpert) {
-      ctx.fillStyle = tierHex;
-      ctx.font = "700 14px 'Rajdhani', sans-serif";
-      ctx.fillText(p.tier.toUpperCase(), cx, cardY + 32);
-    }
+    ctx.fillStyle = tierHex;
+    ctx.font = "700 14px 'Rajdhani', sans-serif";
+    ctx.fillText(p.tier.toUpperCase(), cx, cardY + 32);
 
     // team logo(s) -- up to 3 across, matching the in-game logo strip
     const logos = [...p.teams].sort()
