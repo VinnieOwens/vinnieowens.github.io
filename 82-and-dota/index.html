@@ -1146,17 +1146,6 @@ function renderSynergyOverlay(rosterObj) {
     const labelY = topPad + gi * rowHeight;
     const labelX = g.members.reduce((s, m) => s + posByRole[m.role].x, 0) / g.members.length;
     const lineColor = TIER_HEX[g.colorTier];
-    g.members.forEach(m => {
-      const pos = posByRole[m.role];
-      const line = document.createElementNS(svgNS, 'path');
-      const startY = pos.y - gridRect.height; // relative to svg's own top (100% of grid)
-      line.setAttribute('d', `M${pos.x},${startY} L${pos.x},${labelY} L${labelX},${labelY}`);
-      line.setAttribute('stroke', lineColor);
-      line.setAttribute('stroke-width', '3');
-      line.setAttribute('fill', 'none');
-      line.setAttribute('opacity', '0.6');
-      svg.appendChild(line);
-    });
 
     // up to 2 distinct team logos (usually just 1, unless the group
     // moved teams together across the years they played together) --
@@ -1180,8 +1169,11 @@ function renderSynergyOverlay(rosterObj) {
     const pillH = 56;
     const pillX = Math.max(6, Math.min(gridRect.width - pillW - 6, labelX - pillW / 2));
     const pillY = labelY - pillH / 2;
-
     const tierColor = TIER_HEX[g.colorTier];
+
+    // draw the pill BACKGROUND first, so the connecting lines (drawn
+    // next) are never hidden underneath it -- only the pill's own text
+    // and logos go on top of the lines, at the very end
     const pill = document.createElementNS(svgNS, 'rect');
     pill.setAttribute('x', pillX);
     pill.setAttribute('y', pillY);
@@ -1192,6 +1184,18 @@ function renderSynergyOverlay(rosterObj) {
     pill.setAttribute('stroke', tierColor);
     pill.setAttribute('stroke-width', '2');
     svg.appendChild(pill);
+
+    g.members.forEach(m => {
+      const pos = posByRole[m.role];
+      const line = document.createElementNS(svgNS, 'path');
+      const startY = pos.y - gridRect.height; // relative to svg's own top (100% of grid)
+      line.setAttribute('d', `M${pos.x},${startY} L${pos.x},${labelY} L${labelX},${labelY}`);
+      line.setAttribute('stroke', lineColor);
+      line.setAttribute('stroke-width', '3');
+      line.setAttribute('fill', 'none');
+      line.setAttribute('opacity', '0.6');
+      svg.appendChild(line);
+    });
 
     let textX = pillX + pillW / 2 + 14;
     if (logoUrls.length) {
@@ -1293,17 +1297,6 @@ function renderRivalryOverlay(rosterObj) {
     const labelY = svgHeight - bottomPad - gi * rowHeight;
     const labelX = g.members.reduce((s, m) => s + posByRole[m.role].x, 0) / g.members.length;
 
-    g.members.forEach(m => {
-      const pos = posByRole[m.role];
-      const line = document.createElementNS(svgNS, 'path');
-      line.setAttribute('d', `M${pos.x},${svgHeight} L${pos.x},${labelY} L${labelX},${labelY}`);
-      line.setAttribute('stroke', rivalryRed);
-      line.setAttribute('stroke-width', '3');
-      line.setAttribute('fill', 'none');
-      line.setAttribute('opacity', '0.6');
-      svg.appendChild(line);
-    });
-
     const titleText = 'Rivalry Bonus!';
     const yearsLabel = g.years.length > 1
       ? `TI ${g.years.join(', ')} Grand Finals`
@@ -1323,6 +1316,8 @@ function renderRivalryOverlay(rosterObj) {
     const pillX = Math.max(6, Math.min(gridRect.width - pillW - 6, labelX - pillW / 2));
     const pillY = labelY - pillH / 2;
 
+    // pill BACKGROUND first, so the connecting lines (drawn next) are
+    // never hidden underneath it -- only the text/logos go on top
     const pill = document.createElementNS(svgNS, 'rect');
     pill.setAttribute('x', pillX);
     pill.setAttribute('y', pillY);
@@ -1333,6 +1328,17 @@ function renderRivalryOverlay(rosterObj) {
     pill.setAttribute('stroke', rivalryRed);
     pill.setAttribute('stroke-width', '2');
     svg.appendChild(pill);
+
+    g.members.forEach(m => {
+      const pos = posByRole[m.role];
+      const line = document.createElementNS(svgNS, 'path');
+      line.setAttribute('d', `M${pos.x},${svgHeight} L${pos.x},${labelY} L${labelX},${labelY}`);
+      line.setAttribute('stroke', rivalryRed);
+      line.setAttribute('stroke-width', '3');
+      line.setAttribute('fill', 'none');
+      line.setAttribute('opacity', '0.6');
+      svg.appendChild(line);
+    });
 
     if (winLogo) {
       const img = document.createElementNS(svgNS, 'image');
@@ -1765,18 +1771,6 @@ async function buildShareImage(rosterObj, total, rating) {
       const labelY = rivalryBottom - 24 - gi * rivalryRowH;
       const labelX = g.members.reduce((s, m) => s + posByRole[m.role], 0) / g.members.length;
 
-      ctx.lineWidth = 3;
-      g.members.forEach(m => {
-        ctx.strokeStyle = rivalryRed;
-        ctx.globalAlpha = 0.6;
-        ctx.beginPath();
-        ctx.moveTo(posByRole[m.role], cardY);
-        ctx.lineTo(posByRole[m.role], labelY);
-        ctx.lineTo(labelX, labelY);
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-      });
-
       const titleText = 'Rivalry Bonus!';
       const yearsLabel = g.years.length > 1
         ? `TI ${g.years.join(', ')} Grand Finals`
@@ -1798,6 +1792,8 @@ async function buildShareImage(rosterObj, total, rating) {
       const pillX = Math.max(20, Math.min(W - pillW - 20, labelX - pillW / 2));
       const pillY = labelY - pillH / 2;
 
+      // pill background FIRST, so the connecting lines drawn next are
+      // never hidden underneath it -- only the text/logos go on top
       ctx.fillStyle = mixHexColors(rivalryRed, '#f3f0f8', 0.22);
       drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
       ctx.fill();
@@ -1805,6 +1801,18 @@ async function buildShareImage(rosterObj, total, rating) {
       ctx.lineWidth = 2;
       drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
       ctx.stroke();
+
+      ctx.lineWidth = 3;
+      g.members.forEach(m => {
+        ctx.strokeStyle = rivalryRed;
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        ctx.moveTo(posByRole[m.role], cardY);
+        ctx.lineTo(posByRole[m.role], labelY);
+        ctx.lineTo(labelX, labelY);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      });
 
       if (winImg) ctx.drawImage(winImg, pillX + 8, pillY + pillH / 2 - 16, 32, 32);
       if (loseImg) ctx.drawImage(loseImg, pillX + pillW - 40, pillY + pillH / 2 - 16, 32, 32);
@@ -1890,18 +1898,6 @@ async function buildShareImage(rosterObj, total, rating) {
       const labelX = g.members.reduce((s, m) => s + posByRole[m.role], 0) / g.members.length;
       const tierColor = TIER_HEX[g.colorTier];
 
-      ctx.lineWidth = 3;
-      g.members.forEach(m => {
-        ctx.strokeStyle = tierColor;
-        ctx.globalAlpha = 0.6;
-        ctx.beginPath();
-        ctx.moveTo(posByRole[m.role], cardY + cardH);
-        ctx.lineTo(posByRole[m.role], labelY);
-        ctx.lineTo(labelX, labelY);
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-      });
-
       const teamYearMap = {};
       g.instances.forEach(inst => { teamYearMap[inst.team] = Math.max(teamYearMap[inst.team] || 0, inst.year); });
       const imgs = Object.keys(teamYearMap).slice(0, 2)
@@ -1923,6 +1919,8 @@ async function buildShareImage(rosterObj, total, rating) {
       const pillX = Math.max(20, Math.min(W - pillW - 20, labelX - pillW / 2));
       const pillY = labelY - pillH / 2;
 
+      // pill background FIRST, so the connecting lines drawn next are
+      // never hidden underneath it -- only the text/logos go on top
       ctx.fillStyle = mixHexColors(tierColor, '#f3f0f8', 0.22);
       drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
       ctx.fill();
@@ -1930,6 +1928,18 @@ async function buildShareImage(rosterObj, total, rating) {
       ctx.lineWidth = 2;
       drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
       ctx.stroke();
+
+      ctx.lineWidth = 3;
+      g.members.forEach(m => {
+        ctx.strokeStyle = tierColor;
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        ctx.moveTo(posByRole[m.role], cardY + cardH);
+        ctx.lineTo(posByRole[m.role], labelY);
+        ctx.lineTo(labelX, labelY);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      });
 
       let textCenterX = pillX + pillW / 2 + (imgs.length ? 14 : 0);
       if (imgs.length) {
