@@ -1772,11 +1772,12 @@ async function buildShareImage(rosterObj, total, rating) {
 
   const { groups: synergyGroups } = computeSynergyBonus(rosterObj);
   const synergyRowH = 76;
-  const synergyBlockH = synergyGroups.length ? (24 + synergyGroups.length * synergyRowH) : 0;
+  const pillGap = 60; // gap between the card row and the nearest pillbox (matches the live in-page overlay)
+  const synergyBlockH = synergyGroups.length ? (pillGap + synergyGroups.length * synergyRowH) : 0;
 
   const { groups: rivalryGroups } = computeRivalryBonus(rosterObj);
   const rivalryRowH = 76;
-  const rivalryBlockH = rivalryGroups.length ? (24 + rivalryGroups.length * rivalryRowH) : 0;
+  const rivalryBlockH = rivalryGroups.length ? (pillGap + rivalryGroups.length * rivalryRowH) : 0;
 
   const W = 1200;
   const cardY = 310 + rivalryBlockH, cardH = 340; // shift down to make room for rivalry pills above
@@ -1823,8 +1824,14 @@ async function buildShareImage(rosterObj, total, rating) {
   const cardW = (W - marginX * 2 - gap * 4) / 5;
   const posByRole = {};
   ROLE_ORDER.forEach((role, i) => {
-    posByRole[role] = marginX + i * (cardW + gap) + cardW / 2;
+    const left = marginX + i * (cardW + gap);
+    posByRole[role] = { left, width: cardW, cx: left + cardW / 2 };
   });
+  // when multiple pills connect to the same card, fan their lines out
+  // across its width instead of stacking them all at dead center --
+  // same helper the live in-page overlay uses
+  const synergyOffsets = assignRoleOffsets(synergyGroups);
+  const rivalryOffsets = assignRoleOffsets(rivalryGroups);
 
   // rivalry connecting lines + labels, drawn ABOVE the cards
   if (rivalryGroups.length) {
@@ -1844,8 +1851,8 @@ async function buildShareImage(rosterObj, total, rating) {
     }
 
     rivalryGroups.forEach((g, gi) => {
-      const labelY = rivalryBottom - 24 - gi * rivalryRowH;
-      const labelX = g.members.reduce((s, m) => s + posByRole[m.role], 0) / g.members.length;
+      const labelY = rivalryBottom - pillGap - gi * rivalryRowH;
+      const labelX = g.members.reduce((s, m) => s + posByRole[m.role].cx, 0) / g.members.length;
 
       const titleText = 'Rivalry Bonus!';
       const yearsLabel = g.years.length > 1
@@ -1868,22 +1875,18 @@ async function buildShareImage(rosterObj, total, rating) {
       const pillX = Math.max(20, Math.min(W - pillW - 20, labelX - pillW / 2));
       const pillY = labelY - pillH / 2;
 
-      // pill background FIRST, so the connecting lines drawn next are
-      // never hidden underneath it -- only the text/logos go on top
-      ctx.fillStyle = mixHexColors(rivalryRed, '#f3f0f8', 0.22);
-      drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
-      ctx.fill();
-      ctx.strokeStyle = rivalryRed;
-      ctx.lineWidth = 2;
-      drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
-      ctx.stroke();
-
+      // lines FIRST -- any OTHER group's pill (drawn next, on top) will
+      // then sit in front of and occlude whatever part of a line
+      // happens to pass behind it, instead of the line cutting across
+      // the box's face or its logos/text
       ctx.lineWidth = 3;
       g.members.forEach(m => {
         ctx.strokeStyle = rivalryRed;
         ctx.globalAlpha = 0.6;
         ctx.beginPath();
-        const cx = posByRole[m.role];
+        const card = posByRole[m.role];
+        const offsetPct = (rivalryOffsets[gi] && rivalryOffsets[gi][m.role]) || 50;
+        const cx = card.left + card.width * (offsetPct / 100);
         let cornerX;
         if (cx <= pillX) cornerX = pillX;
         else if (cx >= pillX + pillW) cornerX = pillX + pillW;
@@ -1894,6 +1897,15 @@ async function buildShareImage(rosterObj, total, rating) {
         ctx.stroke();
         ctx.globalAlpha = 1;
       });
+
+      // pill background, on top of every line
+      ctx.fillStyle = mixHexColors(rivalryRed, '#f3f0f8', 0.22);
+      drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
+      ctx.fill();
+      ctx.strokeStyle = rivalryRed;
+      ctx.lineWidth = 2;
+      drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
+      ctx.stroke();
 
       if (winImg) ctx.drawImage(winImg, pillX + 8, pillY + pillH / 2 - 16, 32, 32);
       if (loseImg) ctx.drawImage(loseImg, pillX + pillW - 40, pillY + pillH / 2 - 16, 32, 32);
@@ -1963,7 +1975,7 @@ async function buildShareImage(rosterObj, total, rating) {
 
   // synergy connecting lines + labels, drawn between the cards and the footer
   if (synergyGroups.length) {
-    const synergyTop = cardY + cardH + 24;
+    const synergyBottom = cardY + cardH; // reference point: bottom edge of the cards
     const logoCache = {};
     for (const g of synergyGroups) {
       const teamYearMap = {};
@@ -1975,8 +1987,8 @@ async function buildShareImage(rosterObj, total, rating) {
     }
 
     synergyGroups.forEach((g, gi) => {
-      const labelY = synergyTop + gi * synergyRowH + 28;
-      const labelX = g.members.reduce((s, m) => s + posByRole[m.role], 0) / g.members.length;
+      const labelY = synergyBottom + pillGap + gi * synergyRowH;
+      const labelX = g.members.reduce((s, m) => s + posByRole[m.role].cx, 0) / g.members.length;
       const tierColor = TIER_HEX[g.colorTier];
 
       const teamYearMap = {};
@@ -2000,22 +2012,18 @@ async function buildShareImage(rosterObj, total, rating) {
       const pillX = Math.max(20, Math.min(W - pillW - 20, labelX - pillW / 2));
       const pillY = labelY - pillH / 2;
 
-      // pill background FIRST, so the connecting lines drawn next are
-      // never hidden underneath it -- only the text/logos go on top
-      ctx.fillStyle = mixHexColors(tierColor, '#f3f0f8', 0.22);
-      drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
-      ctx.fill();
-      ctx.strokeStyle = tierColor;
-      ctx.lineWidth = 2;
-      drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
-      ctx.stroke();
-
+      // lines FIRST -- any OTHER group's pill (drawn next, on top) will
+      // then sit in front of and occlude whatever part of a line
+      // happens to pass behind it, instead of the line cutting across
+      // the box's face or its logos/text
       ctx.lineWidth = 3;
       g.members.forEach(m => {
         ctx.strokeStyle = tierColor;
         ctx.globalAlpha = 0.6;
         ctx.beginPath();
-        const cx = posByRole[m.role];
+        const card = posByRole[m.role];
+        const offsetPct = (synergyOffsets[gi] && synergyOffsets[gi][m.role]) || 50;
+        const cx = card.left + card.width * (offsetPct / 100);
         let cornerX;
         if (cx <= pillX) cornerX = pillX;
         else if (cx >= pillX + pillW) cornerX = pillX + pillW;
@@ -2026,6 +2034,15 @@ async function buildShareImage(rosterObj, total, rating) {
         ctx.stroke();
         ctx.globalAlpha = 1;
       });
+
+      // pill background, on top of every line
+      ctx.fillStyle = mixHexColors(tierColor, '#f3f0f8', 0.22);
+      drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
+      ctx.fill();
+      ctx.strokeStyle = tierColor;
+      ctx.lineWidth = 2;
+      drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 16);
+      ctx.stroke();
 
       let textCenterX = pillX + pillW / 2 + (imgs.length ? 14 : 0);
       if (imgs.length) {
