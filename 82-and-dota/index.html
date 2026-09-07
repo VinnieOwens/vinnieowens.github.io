@@ -1195,8 +1195,8 @@ function computeSynergyBonus(rosterObj) {
 // before the cards even animate in -- so the grid never has to shift
 // once the pills actually render.
 function overlayMargin(groupCount) {
-  const rowHeight = 76, topPad = 60, pad = 32;
-  return groupCount === 0 ? 0 : (topPad + groupCount * rowHeight + pad);
+  const rowHeight = 76, topPad = 60, basePad = 44;
+  return groupCount === 0 ? basePad : (topPad + groupCount * rowHeight + basePad);
 }
 
 function computeTeamTotal(rosterObj) {
