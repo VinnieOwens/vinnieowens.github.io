@@ -598,12 +598,39 @@ h1 {
   }
 }
 
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
 .sidebar h2 {
   font-family: 'Rajdhani', sans-serif;
   font-weight: 600;
   font-size: 0.95rem;
   color: var(--text-muted);
-  margin: 0 0 12px;
+  margin: 0;
+}
+
+.clear-runs-btn {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 0.72rem;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1.5px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.clear-runs-btn:hover {
+  color: #ff2e2e;
+  border-color: #ff2e2e;
 }
 
 #runsList {
@@ -1006,7 +1033,10 @@ footer {
 </div>
 
 <aside class="sidebar" id="sidebar">
-  <h2>Past Run Leaderboard</h2>
+  <div class="sidebar-header">
+    <h2 id="sidebarHeading">Past Run Leaderboard</h2>
+    <button class="clear-runs-btn" id="clearRunsBtn" title="Delete past run data">Clear</button>
+  </div>
   <div id="runsList"><div class="empty-note">No completed drafts yet.</div></div>
 </aside>
 
@@ -1608,7 +1638,7 @@ function applyModeUI() {
   const label = gameMode === 'expert' ? 'EXPERT MODE' : '';
   const badge = document.getElementById('modeBadge');
   if (badge) badge.textContent = label;
-  const heading = document.querySelector('#sidebar h2');
+  const heading = document.getElementById('sidebarHeading');
   if (heading) heading.textContent = gameMode === 'expert' ? 'Past Run Leaderboard \u2014 Expert' : 'Past Run Leaderboard';
 }
 
@@ -1971,6 +2001,15 @@ function animateNumber(el, target) {
 }
 
 document.getElementById('restartBtn').addEventListener('click', resetGame);
+
+document.getElementById('clearRunsBtn').addEventListener('click', () => {
+  const ok = confirm('This will delete your past run data. Are you sure?');
+  if (!ok) return;
+  pastRuns.length = 0; // clears in place -- pastRunsByMode[gameMode] stays pointed at this same array
+  latestRun = null;
+  saveRunsToStorage();
+  renderSidebar();
+});
 
 // ---- Custom share card (drawn from scratch, no DOM screenshotting) ----
 function drawRoundedRect(ctx, x, y, w, h, r) {
