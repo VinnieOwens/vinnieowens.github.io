@@ -728,10 +728,10 @@ h1 {
   text-align: center;
   font-family: 'Rajdhani', sans-serif;
   font-weight: 700;
-  font-size: 1.1rem;
-  letter-spacing: 0.03em;
-  color: var(--text-muted);
-  margin-bottom: 4px;
+  font-size: 2.1rem;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  margin: 0 0 4px;
 }
 
 .share-status {
@@ -749,7 +749,7 @@ h1 {
 .score-hero .score-label {
   font-family: 'Rajdhani', sans-serif;
   color: var(--text-muted);
-  font-size: 0.95rem;
+  font-size: 1.15rem;
   font-weight: 600;
 }
 
@@ -771,7 +771,7 @@ h1 {
 .rating-label {
   font-family: 'Rajdhani', sans-serif;
   font-weight: 700;
-  font-size: 1.35rem;
+  font-size: 1.6rem;
   color: var(--legendary);
   margin-top: 4px;
 }
@@ -847,11 +847,13 @@ footer {
   <button class="tab-btn" id="tabDbBtn">Player Database</button>
 </div>
 <div class="wrap" id="gameTab">
-  <h1>82 and d0ta</h1>
-  <div class="mode-badge" id="modeBadge"></div>
-  <p class="subtitle">Draft a 5-man roster from Dota's TI history. Can your team claim the Aegis?</p>
+  <div id="gameHeader">
+    <h1>82 and d0ta</h1>
+    <div class="mode-badge" id="modeBadge"></div>
+    <p class="subtitle">Draft a 5-man roster from Dota's TI history. Can your team claim the Aegis?</p>
 
-  <div class="role-bar" id="roleBar"></div>
+    <div class="role-bar" id="roleBar"></div>
+  </div>
 
   <div id="draftStage">
     <p class="prompt" id="prompt">Pick one to fill a role.</p>
@@ -1591,6 +1593,7 @@ function resetGame() {
   openRoles = [...ROLE_ORDER];
   roster = {};
   expertDraftActive = (gameMode === 'expert'); // locks tab-switching until the draft finishes
+  document.getElementById('gameHeader').classList.remove('hidden');
   document.getElementById('finalStage').classList.add('hidden');
   document.getElementById('draftStage').classList.remove('hidden');
   renderRoleBar();
@@ -1701,10 +1704,10 @@ function pick(player, el) {
 
 function showFinal() {
   document.getElementById('draftStage').classList.add('hidden');
+  document.getElementById('gameHeader').classList.add('hidden');
   const finalStage = document.getElementById('finalStage');
   finalStage.classList.remove('hidden');
   expertDraftActive = false; // draft is done -- safe to leave the tab now
-  renderRoleBar(); // re-render now that expertDraftActive is false, so pips reveal true tier colors
 
   const total = computeTeamTotal(roster);
   const rating = getRating(total);
@@ -1764,8 +1767,7 @@ function renderSidebar() {
 
     const rosterLines = ROLE_ORDER.map(role => {
       const p = r.roster[role];
-      const tierColor = r.mode === 'expert' ? TIER_VARS.Unranked.color : TIER_VARS[p.tier].color;
-      return `<div>${ROLE_NAMES[role]}: <b style="color:${tierColor}">${p.player_name}</b></div>`;
+      return `<div>${ROLE_NAMES[role]}: <b style="color:${TIER_VARS[p.tier].color}">${p.player_name}</b></div>`;
     }).join('');
 
     const shareStatusId = `run-share-status-${idx}`;
