@@ -1109,6 +1109,35 @@ function computeRivalryBonus(rosterObj) {
   return { bonus, groups };
 }
 
+// When multiple pill groups (synergy or rivalry) connect to the SAME
+// player card, fan their lines out across the card's width instead of
+// stacking them all at dead center -- e.g. two lines land at 40%/60%,
+// three at 30/50/70, each additional line 20% farther from center, so
+// it's clear at a glance which line belongs to which pill.
+function assignRoleOffsets(groups) {
+  const byRole = {};
+  groups.forEach((g, gi) => {
+    g.members.forEach(m => {
+      if (!byRole[m.role]) byRole[m.role] = [];
+      byRole[m.role].push(gi);
+    });
+  });
+  const offsets = {}; // offsets[gi][role] = percent across the card, 0-100
+  Object.entries(byRole).forEach(([role, giList]) => {
+    const n = giList.length;
+    giList.forEach((gi, idx) => {
+      let pct = 50;
+      if (n > 1) {
+        const step = 20;
+        pct = Math.max(8, Math.min(92, 50 + step * (idx - (n - 1) / 2)));
+      }
+      if (!offsets[gi]) offsets[gi] = {};
+      offsets[gi][role] = pct;
+    });
+  });
+  return offsets;
+}
+
 function renderSynergyOverlay(rosterObj) {
   const grid = document.getElementById('rosterGrid');
   const existing = document.getElementById('synergySvg');
@@ -1123,13 +1152,14 @@ function renderSynergyOverlay(rosterObj) {
   ROLE_ORDER.forEach((role, i) => {
     const r = cardEls[i].getBoundingClientRect();
     posByRole[role] = {
-      x: r.left - gridRect.left + r.width / 2,
+      left: r.left - gridRect.left,
+      width: r.width,
       y: r.bottom - gridRect.top,
     };
   });
 
   const rowHeight = 76;
-  const topPad = 30;
+  const topPad = 60; // gap between the card row and the nearest pillbox
   const svgHeight = topPad + groups.length * rowHeight;
   const svgNS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(svgNS, 'svg');
@@ -1142,9 +1172,14 @@ function renderSynergyOverlay(rosterObj) {
   svg.style.overflow = 'visible';
   svg.style.pointerEvents = 'none';
 
-  groups.forEach((g, gi) => {
+  const roleOffsets = assignRoleOffsets(groups);
+
+  // Pass 1: lay out every pill's geometry, text, and logos up front so
+  // the lines (drawn next) know exactly where every pill sits --
+  // including ones belonging to OTHER groups they need to duck behind.
+  const layouts = groups.map((g, gi) => {
     const labelY = topPad + gi * rowHeight;
-    const labelX = g.members.reduce((s, m) => s + posByRole[m.role].x, 0) / g.members.length;
+    const labelX = g.members.reduce((s, m) => s + posByRole[m.role].left + posByRole[m.role].width / 2, 0) / g.members.length;
     const lineColor = TIER_HEX[g.colorTier];
 
     // up to 2 distinct team logos (usually just 1, unless the group
@@ -1171,9 +1206,37 @@ function renderSynergyOverlay(rosterObj) {
     const pillY = labelY - pillH / 2;
     const tierColor = TIER_HEX[g.colorTier];
 
-    // draw the pill BACKGROUND first, so the connecting lines (drawn
-    // next) are never hidden underneath it -- only the pill's own text
-    // and logos go on top of the lines, at the very end
+    return { g, gi, labelY, lineColor, tierColor, logoUrls, titleText, subText, pillX, pillY, pillW, pillH };
+  });
+
+  // Pass 2: lines first. Any OTHER group's pill (drawn next, on top)
+  // will then visually sit in front of and occlude whatever part of a
+  // line happens to pass behind it, instead of the line cutting
+  // straight across the box's face.
+  layouts.forEach(({ g, gi, labelY, lineColor, pillX, pillW }) => {
+    g.members.forEach(m => {
+      const card = posByRole[m.role];
+      const offsetPct = (roleOffsets[gi] && roleOffsets[gi][m.role]) || 50;
+      const x = card.left + card.width * (offsetPct / 100);
+      const startY = card.y - gridRect.height; // relative to svg's own top (100% of grid)
+      // bend at the box's true center height, but stop the horizontal
+      // run at the box's edge instead of crossing into its interior
+      let cornerX;
+      if (x <= pillX) cornerX = pillX;
+      else if (x >= pillX + pillW) cornerX = pillX + pillW;
+      else cornerX = x;
+      const line = document.createElementNS(svgNS, 'path');
+      line.setAttribute('d', `M${x},${startY} L${x},${labelY} L${cornerX},${labelY}`);
+      line.setAttribute('stroke', lineColor);
+      line.setAttribute('stroke-width', '3');
+      line.setAttribute('fill', 'none');
+      line.setAttribute('opacity', '0.6');
+      svg.appendChild(line);
+    });
+  });
+
+  // Pass 3: pill backgrounds, on top of every line.
+  layouts.forEach(({ pillX, pillY, pillW, pillH, tierColor }) => {
     const pill = document.createElementNS(svgNS, 'rect');
     pill.setAttribute('x', pillX);
     pill.setAttribute('y', pillY);
@@ -1184,25 +1247,10 @@ function renderSynergyOverlay(rosterObj) {
     pill.setAttribute('stroke', tierColor);
     pill.setAttribute('stroke-width', '2');
     svg.appendChild(pill);
+  });
 
-    g.members.forEach(m => {
-      const pos = posByRole[m.role];
-      const line = document.createElementNS(svgNS, 'path');
-      const startY = pos.y - gridRect.height; // relative to svg's own top (100% of grid)
-      // bend at the box's true center height, but stop the horizontal
-      // run at the box's edge instead of crossing into its interior
-      let cornerX;
-      if (pos.x <= pillX) cornerX = pillX;
-      else if (pos.x >= pillX + pillW) cornerX = pillX + pillW;
-      else cornerX = pos.x;
-      line.setAttribute('d', `M${pos.x},${startY} L${pos.x},${labelY} L${cornerX},${labelY}`);
-      line.setAttribute('stroke', lineColor);
-      line.setAttribute('stroke-width', '3');
-      line.setAttribute('fill', 'none');
-      line.setAttribute('opacity', '0.6');
-      svg.appendChild(line);
-    });
-
+  // Pass 4: text and logos, on top of everything.
+  layouts.forEach(({ pillX, pillY, pillW, pillH, tierColor, logoUrls, titleText, subText }) => {
     let textX = pillX + pillW / 2 + 14;
     if (logoUrls.length) {
       const logoSize = logoUrls.length > 1 ? 22 : 32;
@@ -1276,13 +1324,13 @@ function renderRivalryOverlay(rosterObj) {
   ROLE_ORDER.forEach((role, i) => {
     const r = cardEls[i].getBoundingClientRect();
     posByRole[role] = {
-      x: r.left - gridRect.left + r.width / 2,
-      yTop: r.top - gridRect.top,
+      left: r.left - gridRect.left,
+      width: r.width,
     };
   });
 
   const rowHeight = 76;
-  const bottomPad = 30;
+  const bottomPad = 60; // gap between the card row and the nearest pillbox
   const svgHeight = bottomPad + groups.length * rowHeight;
   const svgNS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(svgNS, 'svg');
@@ -1296,12 +1344,16 @@ function renderRivalryOverlay(rosterObj) {
   svg.style.pointerEvents = 'none';
 
   const rivalryRed = '#c0392b';
+  const roleOffsets = assignRoleOffsets(groups);
 
-  groups.forEach((g, gi) => {
+  // Pass 1: lay out every pill's geometry, text, and logos up front so
+  // the lines (drawn next) know exactly where every pill sits --
+  // including ones belonging to OTHER groups they need to duck behind.
+  const layouts = groups.map((g, gi) => {
     // stack from the bottom of this SVG (closest to the cards) upward,
     // so the first rivalry found sits nearest the roster
     const labelY = svgHeight - bottomPad - gi * rowHeight;
-    const labelX = g.members.reduce((s, m) => s + posByRole[m.role].x, 0) / g.members.length;
+    const labelX = g.members.reduce((s, m) => s + posByRole[m.role].left + posByRole[m.role].width / 2, 0) / g.members.length;
 
     const titleText = 'Rivalry Bonus!';
     const yearsLabel = g.years.length > 1
@@ -1322,8 +1374,34 @@ function renderRivalryOverlay(rosterObj) {
     const pillX = Math.max(6, Math.min(gridRect.width - pillW - 6, labelX - pillW / 2));
     const pillY = labelY - pillH / 2;
 
-    // pill BACKGROUND first, so the connecting lines (drawn next) are
-    // never hidden underneath it -- only the text/logos go on top
+    return { g, gi, labelY, winLogo, loseLogo, titleText, subText, pillX, pillY, pillW, pillH };
+  });
+
+  // Pass 2: lines first. Any OTHER group's pill (drawn next, on top)
+  // will then visually sit in front of and occlude whatever part of a
+  // line happens to pass behind it, instead of the line cutting
+  // straight across the box's face.
+  layouts.forEach(({ g, gi, labelY, pillX, pillW }) => {
+    g.members.forEach(m => {
+      const card = posByRole[m.role];
+      const offsetPct = (roleOffsets[gi] && roleOffsets[gi][m.role]) || 50;
+      const x = card.left + card.width * (offsetPct / 100);
+      let cornerX;
+      if (x <= pillX) cornerX = pillX;
+      else if (x >= pillX + pillW) cornerX = pillX + pillW;
+      else cornerX = x;
+      const line = document.createElementNS(svgNS, 'path');
+      line.setAttribute('d', `M${x},${svgHeight} L${x},${labelY} L${cornerX},${labelY}`);
+      line.setAttribute('stroke', rivalryRed);
+      line.setAttribute('stroke-width', '3');
+      line.setAttribute('fill', 'none');
+      line.setAttribute('opacity', '0.6');
+      svg.appendChild(line);
+    });
+  });
+
+  // Pass 3: pill backgrounds, on top of every line.
+  layouts.forEach(({ pillX, pillY, pillW, pillH }) => {
     const pill = document.createElementNS(svgNS, 'rect');
     pill.setAttribute('x', pillX);
     pill.setAttribute('y', pillY);
@@ -1334,22 +1412,10 @@ function renderRivalryOverlay(rosterObj) {
     pill.setAttribute('stroke', rivalryRed);
     pill.setAttribute('stroke-width', '2');
     svg.appendChild(pill);
+  });
 
-    g.members.forEach(m => {
-      const pos = posByRole[m.role];
-      const line = document.createElementNS(svgNS, 'path');
-      let cornerX;
-      if (pos.x <= pillX) cornerX = pillX;
-      else if (pos.x >= pillX + pillW) cornerX = pillX + pillW;
-      else cornerX = pos.x;
-      line.setAttribute('d', `M${pos.x},${svgHeight} L${pos.x},${labelY} L${cornerX},${labelY}`);
-      line.setAttribute('stroke', rivalryRed);
-      line.setAttribute('stroke-width', '3');
-      line.setAttribute('fill', 'none');
-      line.setAttribute('opacity', '0.6');
-      svg.appendChild(line);
-    });
-
+  // Pass 4: logos and text, on top of everything.
+  layouts.forEach(({ pillX, pillY, pillW, pillH, winLogo, loseLogo, titleText, subText }) => {
     if (winLogo) {
       const img = document.createElementNS(svgNS, 'image');
       img.setAttribute('href', winLogo);
