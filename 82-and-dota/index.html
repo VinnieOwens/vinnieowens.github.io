@@ -1189,7 +1189,13 @@ function renderSynergyOverlay(rosterObj) {
       const pos = posByRole[m.role];
       const line = document.createElementNS(svgNS, 'path');
       const startY = pos.y - gridRect.height; // relative to svg's own top (100% of grid)
-      line.setAttribute('d', `M${pos.x},${startY} L${pos.x},${pillY} L${labelX},${pillY}`);
+      // bend at the box's true center height, but stop the horizontal
+      // run at the box's edge instead of crossing into its interior
+      let cornerX;
+      if (pos.x <= pillX) cornerX = pillX;
+      else if (pos.x >= pillX + pillW) cornerX = pillX + pillW;
+      else cornerX = pos.x;
+      line.setAttribute('d', `M${pos.x},${startY} L${pos.x},${labelY} L${cornerX},${labelY}`);
       line.setAttribute('stroke', lineColor);
       line.setAttribute('stroke-width', '3');
       line.setAttribute('fill', 'none');
@@ -1332,8 +1338,11 @@ function renderRivalryOverlay(rosterObj) {
     g.members.forEach(m => {
       const pos = posByRole[m.role];
       const line = document.createElementNS(svgNS, 'path');
-      const pillBottom = pillY + pillH;
-      line.setAttribute('d', `M${pos.x},${svgHeight} L${pos.x},${pillBottom} L${labelX},${pillBottom}`);
+      let cornerX;
+      if (pos.x <= pillX) cornerX = pillX;
+      else if (pos.x >= pillX + pillW) cornerX = pillX + pillW;
+      else cornerX = pos.x;
+      line.setAttribute('d', `M${pos.x},${svgHeight} L${pos.x},${labelY} L${cornerX},${labelY}`);
       line.setAttribute('stroke', rivalryRed);
       line.setAttribute('stroke-width', '3');
       line.setAttribute('fill', 'none');
@@ -1804,14 +1813,18 @@ async function buildShareImage(rosterObj, total, rating) {
       ctx.stroke();
 
       ctx.lineWidth = 3;
-      const pillBottom = pillY + pillH;
       g.members.forEach(m => {
         ctx.strokeStyle = rivalryRed;
         ctx.globalAlpha = 0.6;
         ctx.beginPath();
-        ctx.moveTo(posByRole[m.role], cardY);
-        ctx.lineTo(posByRole[m.role], pillBottom);
-        ctx.lineTo(labelX, pillBottom);
+        const cx = posByRole[m.role];
+        let cornerX;
+        if (cx <= pillX) cornerX = pillX;
+        else if (cx >= pillX + pillW) cornerX = pillX + pillW;
+        else cornerX = cx;
+        ctx.moveTo(cx, cardY);
+        ctx.lineTo(cx, labelY);
+        ctx.lineTo(cornerX, labelY);
         ctx.stroke();
         ctx.globalAlpha = 1;
       });
@@ -1936,9 +1949,14 @@ async function buildShareImage(rosterObj, total, rating) {
         ctx.strokeStyle = tierColor;
         ctx.globalAlpha = 0.6;
         ctx.beginPath();
-        ctx.moveTo(posByRole[m.role], cardY + cardH);
-        ctx.lineTo(posByRole[m.role], pillY);
-        ctx.lineTo(labelX, pillY);
+        const cx = posByRole[m.role];
+        let cornerX;
+        if (cx <= pillX) cornerX = pillX;
+        else if (cx >= pillX + pillW) cornerX = pillX + pillW;
+        else cornerX = cx;
+        ctx.moveTo(cx, cardY + cardH);
+        ctx.lineTo(cx, labelY);
+        ctx.lineTo(cornerX, labelY);
         ctx.stroke();
         ctx.globalAlpha = 1;
       });
