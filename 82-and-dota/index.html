@@ -735,6 +735,13 @@ h1 {
   margin: 0 0 4px;
 }
 
+.share-brand.expert-brand {
+  background-image: linear-gradient(90deg, #ff2e2e, #6e0000);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
 .share-status {
   font-size: 0.85rem;
   color: var(--uncommon);
@@ -763,10 +770,6 @@ h1 {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-}
-
-.score-hero .score-number.expert-score {
-  background-image: linear-gradient(135deg, #ff2e2e, #6e0000);
 }
 
 .rating-label {
@@ -863,7 +866,7 @@ footer {
 
   <div id="finalStage" class="hidden">
     <div id="shareCapture">
-      <div class="share-brand">82 and d0ta</div>
+      <div class="share-brand" id="shareBrand">82 and d0ta</div>
       <div class="mode-badge mode-badge-final" id="modeBadgeFinal"></div>
       <div class="score-hero">
         <div class="score-label">Team Score</div>
@@ -1713,10 +1716,10 @@ function showFinal() {
   const total = computeTeamTotal(roster);
   const rating = getRating(total);
   const scoreEl = document.getElementById('teamScore');
-  scoreEl.classList.toggle('expert-score', gameMode === 'expert');
   animateNumber(scoreEl, total);
   document.getElementById('ratingLabel').textContent = rating;
   document.getElementById('modeBadgeFinal').textContent = gameMode === 'expert' ? 'EXPERT MODE' : '';
+  document.getElementById('shareBrand').classList.toggle('expert-brand', gameMode === 'expert');
 
   const isExpert = gameMode === 'expert';
   const grid = document.getElementById('rosterGrid');
@@ -1887,8 +1890,17 @@ async function buildShareImage(rosterObj, total, rating, mode) {
   ctx.textAlign = 'center';
 
   // title
-  ctx.fillStyle = '#f0ede8';
   ctx.font = "700 66px 'Rajdhani', sans-serif";
+  if (isExpert) {
+    const titleText = '82 and d0ta';
+    const titleWidth = ctx.measureText(titleText).width;
+    const titleGrad = ctx.createLinearGradient(W / 2 - titleWidth / 2, 0, W / 2 + titleWidth / 2, 0);
+    titleGrad.addColorStop(0, '#ff2e2e');
+    titleGrad.addColorStop(1, '#6e0000');
+    ctx.fillStyle = titleGrad;
+  } else {
+    ctx.fillStyle = '#f0ede8';
+  }
   ctx.fillText('82 and d0ta', W / 2, 92);
 
   ctx.fillStyle = '#948da3';
@@ -1896,13 +1908,8 @@ async function buildShareImage(rosterObj, total, rating, mode) {
   ctx.fillText('TEAM SCORE', W / 2, 138);
 
   const scoreGrad = ctx.createLinearGradient(W / 2 - 180, 175, W / 2 + 180, 240);
-  if (isExpert) {
-    scoreGrad.addColorStop(0, '#ff2e2e');
-    scoreGrad.addColorStop(1, '#6e0000');
-  } else {
-    scoreGrad.addColorStop(0, '#ff8000');
-    scoreGrad.addColorStop(1, '#a335ee');
-  }
+  scoreGrad.addColorStop(0, '#ff8000');
+  scoreGrad.addColorStop(1, '#a335ee');
   ctx.fillStyle = scoreGrad;
   ctx.font = "700 92px 'Rajdhani', sans-serif";
   ctx.fillText(total.toFixed(1), W / 2, 235);
