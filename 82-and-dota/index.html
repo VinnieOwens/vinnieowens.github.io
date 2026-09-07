@@ -768,10 +768,6 @@ h1 {
   margin: 0 0 4px;
 }
 
-#replayModeBadge.mode-badge-final {
-  font-size: 2.1rem;
-}
-
 .run-share-status {
   font-size: 0.72rem;
   color: var(--uncommon);
@@ -780,7 +776,7 @@ h1 {
 /* ---- Final roster screen ---- */
 .hidden { display: none !important; }
 
-#shareCapture {
+#shareCapture, #replayResult {
   padding: 8px 4px 4px;
 }
 
@@ -926,7 +922,7 @@ footer {
   <div id="gameHeader">
     <h1>82 and d0ta</h1>
     <div class="mode-badge" id="modeBadge"></div>
-    <p class="subtitle">Draft a 5-man roster from Dota's TI history. Can your team claim the Aegis?</p>
+    <p class="subtitle" id="subtitle">Draft a 5-man roster from Dota's TI history. Can your team claim the Aegis?</p>
 
     <div class="role-bar" id="roleBar"></div>
   </div>
@@ -955,11 +951,24 @@ footer {
   </div>
 
   <div id="replayStage" class="hidden">
-    <h2 class="replay-heading">Ghost Replay</h2>
-    <div class="mode-badge" id="replayModeBadge"></div>
-    <p class="prompt" id="replayPrompt">Replaying draft...</p>
-    <div class="cards" id="replayCards"></div>
-    <div class="roster-grid hidden" id="replayRosterGrid"></div>
+    <div id="replayDraftPanel">
+      <h2 class="replay-heading">Ghost Replay</h2>
+      <div class="mode-badge" id="replayModeBadge"></div>
+      <p class="prompt" id="replayPrompt">Replaying draft...</p>
+      <div class="cards" id="replayCards"></div>
+    </div>
+
+    <div id="replayResult" class="hidden">
+      <div class="share-brand" id="replayBrand">82 and d0ta</div>
+      <div class="mode-badge mode-badge-final" id="replayResultModeBadge"></div>
+      <div class="score-hero">
+        <div class="score-label">Team Score</div>
+        <div class="score-number" id="replayTeamScore">0</div>
+        <div class="rating-label" id="replayRatingLabel"></div>
+      </div>
+      <div class="roster-grid" id="replayRosterGrid"></div>
+    </div>
+
     <div class="actions hidden" id="replayActions">
       <button class="primary" id="replayCloseBtn">Close Replay</button>
     </div>
@@ -1288,9 +1297,9 @@ function assignRoleOffsets(groups) {
   return offsets;
 }
 
-function renderSynergyOverlay(rosterObj) {
-  const grid = document.getElementById('rosterGrid');
-  const existing = document.getElementById('synergySvg');
+function renderSynergyOverlay(rosterObj, gridId = 'rosterGrid', svgId = 'synergySvg') {
+  const grid = document.getElementById(gridId);
+  const existing = document.getElementById(svgId);
   if (existing) existing.remove();
 
   const { groups } = computeSynergyBonus(rosterObj);
@@ -1313,7 +1322,7 @@ function renderSynergyOverlay(rosterObj) {
   const svgHeight = topPad + groups.length * rowHeight;
   const svgNS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(svgNS, 'svg');
-  svg.setAttribute('id', 'synergySvg');
+  svg.setAttribute('id', svgId);
   svg.setAttribute('width', gridRect.width);
   svg.setAttribute('height', svgHeight);
   svg.style.position = 'absolute';
@@ -1463,9 +1472,9 @@ function rivalryTeamsForYear(g, year) {
   return { winTeam, loseTeam };
 }
 
-function renderRivalryOverlay(rosterObj) {
-  const grid = document.getElementById('rosterGrid');
-  const existing = document.getElementById('rivalrySvg');
+function renderRivalryOverlay(rosterObj, gridId = 'rosterGrid', svgId = 'rivalrySvg') {
+  const grid = document.getElementById(gridId);
+  const existing = document.getElementById(svgId);
   if (existing) existing.remove();
 
   const { groups } = computeRivalryBonus(rosterObj);
@@ -1487,7 +1496,7 @@ function renderRivalryOverlay(rosterObj) {
   const svgHeight = bottomPad + groups.length * rowHeight;
   const svgNS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(svgNS, 'svg');
-  svg.setAttribute('id', 'rivalrySvg');
+  svg.setAttribute('id', svgId);
   svg.setAttribute('width', gridRect.width);
   svg.setAttribute('height', svgHeight);
   svg.style.position = 'absolute';
@@ -1688,6 +1697,10 @@ function applyModeUI() {
   if (badge) badge.textContent = label;
   const heading = document.getElementById('sidebarHeading');
   if (heading) heading.textContent = gameMode === 'expert' ? 'Past Run Leaderboard \u2014 Expert' : 'Past Run Leaderboard';
+  const subtitle = document.getElementById('subtitle');
+  if (subtitle) subtitle.textContent = gameMode === 'expert'
+    ? "Draft a 5-man roster from Dota's TI history. Player tiers are hidden."
+    : "Draft a 5-man roster from Dota's TI history. Can your team claim the Aegis?";
 }
 
 function resetGame() {
@@ -1953,7 +1966,7 @@ function renderSidebar() {
       replayBtn.addEventListener('click', (e) => {
         e.preventDefault();
         if (!confirmLeaveExpertDraftIfNeeded()) return;
-        startReplay(resolvedRoster, r.history, r.mode || gameMode);
+        startReplay(resolvedRoster, r.history, r.mode || gameMode, r.score, r.rating);
       });
     }
 
@@ -1989,18 +2002,17 @@ function exitReplay() {
   replayPrevState = null;
 }
 
-function startReplay(rosterFull, history, mode) {
+function startReplay(rosterFull, history, mode, total, rating) {
   enterReplay();
-  document.getElementById('replayModeBadge').textContent = mode === 'expert' ? 'EXPERT MODE' : '';
-  document.getElementById('replayModeBadge').classList.toggle('mode-badge-final', mode === 'expert');
-  document.getElementById('replayRosterGrid').classList.add('hidden');
-  document.getElementById('replayRosterGrid').innerHTML = '';
+  document.getElementById('replayDraftPanel').classList.remove('hidden');
+  document.getElementById('replayResult').classList.add('hidden');
   document.getElementById('replayActions').classList.add('hidden');
-  playReplayRound(rosterFull, history, mode, 0);
+  document.getElementById('replayModeBadge').textContent = mode === 'expert' ? 'EXPERT MODE' : '';
+  playReplayRound(rosterFull, history, mode, 0, total, rating);
 }
 
-function playReplayRound(rosterFull, history, mode, idx) {
-  if (idx >= history.length) { finishReplay(rosterFull, mode); return; }
+function playReplayRound(rosterFull, history, mode, idx, total, rating) {
+  if (idx >= history.length) { finishReplay(rosterFull, mode, total, rating); return; }
   const round = history[idx];
   const showTier = mode !== 'expert';
   const offersFull = round.offers.map(page => ALL_PLAYERS.find(p => p.player_page === page)).filter(Boolean);
@@ -2023,16 +2035,35 @@ function playReplayRound(rosterFull, history, mode, idx) {
     cardEls.forEach(({ el, p }) => {
       el.classList.add(p.player_page === round.picked ? 'replay-picked' : 'fade-out');
     });
-    setTimeout(() => playReplayRound(rosterFull, history, mode, idx + 1), 650);
+    setTimeout(() => playReplayRound(rosterFull, history, mode, idx + 1, total, rating), 650);
   }, 900);
 }
 
-function finishReplay(rosterFull, mode) {
-  document.getElementById('replayCards').innerHTML = '';
-  document.getElementById('replayPrompt').textContent = 'Final roster';
+// Mirrors showFinal() exactly -- same title/badge treatment, same
+// animated score count-up, same card entrance animation, same
+// synergy/rivalry overlay timing -- just targeting the replay's own
+// elements instead of the live results screen's.
+function finishReplay(rosterFull, mode, total, rating) {
+  document.getElementById('replayDraftPanel').classList.add('hidden');
+  document.getElementById('replayResult').classList.remove('hidden');
+
+  document.getElementById('replayBrand').classList.toggle('expert-brand', mode === 'expert');
+  document.getElementById('replayResultModeBadge').textContent = mode === 'expert' ? 'EXPERT MODE' : '';
+
+  const scoreEl = document.getElementById('replayTeamScore');
+  animateNumber(scoreEl, total);
+  document.getElementById('replayRatingLabel').textContent = rating;
+
   const isExpert = mode === 'expert';
   const grid = document.getElementById('replayRosterGrid');
   grid.innerHTML = '';
+
+  const { groups: synergyGroupsPreview } = computeSynergyBonus(rosterFull);
+  const { groups: rivalryGroupsPreview } = computeRivalryBonus(rosterFull);
+  grid.style.position = 'relative';
+  grid.style.marginTop = `${overlayMargin(rivalryGroupsPreview.length)}px`;
+  grid.style.marginBottom = `${overlayMargin(synergyGroupsPreview.length)}px`;
+
   for (const role of ROLE_ORDER) {
     const p = rosterFull[role];
     const tv = TIER_VARS[p.tier];
@@ -2045,7 +2076,12 @@ function finishReplay(rosterFull, mode) {
     card.innerHTML = cardHTML(p, true);
     grid.appendChild(card);
   }
-  grid.classList.remove('hidden');
+
+  setTimeout(() => {
+    renderSynergyOverlay(rosterFull, 'replayRosterGrid', 'replaySynergySvg');
+    renderRivalryOverlay(rosterFull, 'replayRosterGrid', 'replayRivalrySvg');
+  }, 1750);
+
   document.getElementById('replayActions').classList.remove('hidden');
 }
 
