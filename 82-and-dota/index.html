@@ -573,6 +573,21 @@ h1 {
   object-fit: contain;
 }
 
+.card-logo-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.card-logo-years {
+  font-size: 0.55rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .card-name {
   font-family: 'Rajdhani', sans-serif;
   font-weight: 700;
@@ -1769,25 +1784,47 @@ function rollNext() {
     openRoles.length === 5 ? "Pick one to fill a role." : `${openRoles.length} role${openRoles.length > 1 ? 's' : ''} left. Pick one.`;
 }
 
-// One logo per (team, year)-accurate resolution, in chronological order,
-// with only exact repeats collapsed -- so a team's logo change mid-career
-// (a rebrand) still shows as two logos, but unchanged years don't repeat.
-function playerLogoUrls(p) {
-  const seen = new Set();
-  const urls = [];
+// One entry per (team, year)-accurate logo resolution, in chronological
+// order, with only exact repeats collapsed -- so a team's logo change
+// mid-career (a rebrand) still shows as two logos, but unchanged years
+// collapse into one entry that lists every year it covers.
+function playerLogoEntries(p) {
+  const byUrl = new Map();
   for (const app of p.appearances) {
     const url = resolveLogoForYear(app.team, app.year);
-    if (url && !seen.has(url)) {
-      seen.add(url);
-      urls.push(url);
-    }
+    if (!url) continue;
+    if (!byUrl.has(url)) byUrl.set(url, { url, years: [] });
+    byUrl.get(url).years.push(app.year);
   }
-  return urls;
+  return [...byUrl.values()];
+}
+
+// Compresses a list of years into a compact label, grouping consecutive
+// runs into ranges -- e.g. [2016,2017,2018,2022] -> "2016\u20132018, 2022".
+function formatYearsLabel(years) {
+  const sorted = [...years].sort((a, b) => a - b);
+  const ranges = [];
+  let start = sorted[0], prev = sorted[0];
+  for (let i = 1; i <= sorted.length; i++) {
+    const y = sorted[i];
+    if (y === prev + 1) {
+      prev = y;
+      continue;
+    }
+    ranges.push(start === prev ? `${start}` : `${start}\u2013${prev}`);
+    start = prev = y;
+  }
+  return ranges.join(', ');
 }
 
 function cardHTML(p, showTier) {
-  const logos = playerLogoUrls(p)
-    .map(url => `<img src="${url}" alt="" referrerpolicy="no-referrer">`)
+  const logos = playerLogoEntries(p)
+    .map(({ url, years }) => `
+      <div class="card-logo-item">
+        <img src="${url}" alt="" referrerpolicy="no-referrer">
+        ${showTier ? `<div class="card-logo-years">${formatYearsLabel(years)}</div>` : ''}
+      </div>
+    `)
     .join('');
   return `
     ${showTier ? `<div class="tier-badge">${p.tier}</div>` : ''}
@@ -2381,26 +2418,29 @@ async function buildShareImage(rosterObj, total, rating, mode) {
     ctx.font = "700 14px 'Rajdhani', sans-serif";
     ctx.fillText(p.tier.toUpperCase(), cx, cardY + 32);
 
-    // team logo(s) -- one per (team, year)-accurate resolution, same as the live card
-    const logos = playerLogoUrls(p);
-    const images = await Promise.all(logos.map(loadImageSafe));
-    const validImages = images.filter(Boolean);
-    if (validImages.length) {
+    // team logo(s) -- one per (team, year)-accurate resolution, same as the live card, each with its year range underneath
+    const logoEntries = playerLogoEntries(p);
+    const loadedEntries = await Promise.all(logoEntries.map(async e => ({ img: await loadImageSafe(e.url), years: e.years })));
+    const validEntries = loadedEntries.filter(e => e.img);
+    if (validEntries.length) {
       const maxRowWidth = cardW - 24;
       let logoSize = 44, logoGap = 8;
-      while (logoSize > 18 && (validImages.length * logoSize + (validImages.length - 1) * logoGap) > maxRowWidth) {
+      while (logoSize > 18 && (validEntries.length * logoSize + (validEntries.length - 1) * logoGap) > maxRowWidth) {
         logoSize -= 2;
       }
       const perRow = Math.max(1, Math.floor((maxRowWidth + logoGap) / (logoSize + logoGap)));
       const rows = [];
-      for (let i = 0; i < validImages.length; i += perRow) rows.push(validImages.slice(i, i + perRow));
-      const rowH = logoSize + 6;
+      for (let i = 0; i < validEntries.length; i += perRow) rows.push(validEntries.slice(i, i + perRow));
+      const rowH = logoSize + 18;
       let ly = cardY + 46 - (rows.length - 1) * rowH / 2;
       for (const row of rows) {
         const rowW = row.length * logoSize + (row.length - 1) * logoGap;
         let lx = cx - rowW / 2;
-        for (const img of row) {
-          ctx.drawImage(img, lx, ly, logoSize, logoSize);
+        for (const entry of row) {
+          ctx.drawImage(entry.img, lx, ly, logoSize, logoSize);
+          ctx.fillStyle = '#5c5568';
+          ctx.font = "600 10px 'Rajdhani', sans-serif";
+          ctx.fillText(formatYearsLabel(entry.years), lx + logoSize / 2, ly + logoSize + 12);
           lx += logoSize + logoGap;
         }
         ly += rowH;
