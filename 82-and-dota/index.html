@@ -581,9 +581,9 @@ h1 {
 }
 
 .card-logo-years {
-  font-size: 0.55rem;
+  font-size: 0.65rem;
   font-weight: 600;
-  color: var(--text-muted);
+  color: #211c30;
   line-height: 1;
   white-space: nowrap;
 }
@@ -2431,16 +2431,16 @@ async function buildShareImage(rosterObj, total, rating, mode) {
       const perRow = Math.max(1, Math.floor((maxRowWidth + logoGap) / (logoSize + logoGap)));
       const rows = [];
       for (let i = 0; i < validEntries.length; i += perRow) rows.push(validEntries.slice(i, i + perRow));
-      const rowH = logoSize + 18;
+      const rowH = logoSize + 20;
       let ly = cardY + 46 - (rows.length - 1) * rowH / 2;
       for (const row of rows) {
         const rowW = row.length * logoSize + (row.length - 1) * logoGap;
         let lx = cx - rowW / 2;
         for (const entry of row) {
           ctx.drawImage(entry.img, lx, ly, logoSize, logoSize);
-          ctx.fillStyle = '#5c5568';
-          ctx.font = "600 10px 'Rajdhani', sans-serif";
-          ctx.fillText(formatYearsLabel(entry.years), lx + logoSize / 2, ly + logoSize + 12);
+          ctx.fillStyle = '#211c30';
+          ctx.font = "600 12px 'Rajdhani', sans-serif";
+          ctx.fillText(formatYearsLabel(entry.years), lx + logoSize / 2, ly + logoSize + 13);
           lx += logoSize + logoGap;
         }
         ly += rowH;
