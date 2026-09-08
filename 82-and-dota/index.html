@@ -1769,14 +1769,24 @@ function rollNext() {
     openRoles.length === 5 ? "Pick one to fill a role." : `${openRoles.length} role${openRoles.length > 1 ? 's' : ''} left. Pick one.`;
 }
 
-function teamLogoUrl(p, name) {
-  return (p.team_logos && p.team_logos[name]) || TEAM_LOGOS[name] || '';
+// One logo per (team, year)-accurate resolution, in chronological order,
+// with only exact repeats collapsed -- so a team's logo change mid-career
+// (a rebrand) still shows as two logos, but unchanged years don't repeat.
+function playerLogoUrls(p) {
+  const seen = new Set();
+  const urls = [];
+  for (const app of p.appearances) {
+    const url = resolveLogoForYear(app.team, app.year);
+    if (url && !seen.has(url)) {
+      seen.add(url);
+      urls.push(url);
+    }
+  }
+  return urls;
 }
 
 function cardHTML(p, showTier) {
-  const logos = [...p.teams].sort()
-    .map(t => teamLogoUrl(p, t))
-    .filter(Boolean)
+  const logos = playerLogoUrls(p)
     .map(url => `<img src="${url}" alt="" referrerpolicy="no-referrer">`)
     .join('');
   return `
@@ -2371,21 +2381,29 @@ async function buildShareImage(rosterObj, total, rating, mode) {
     ctx.font = "700 14px 'Rajdhani', sans-serif";
     ctx.fillText(p.tier.toUpperCase(), cx, cardY + 32);
 
-    // team logo(s) -- up to 3 across, matching the in-game logo strip
-    const logos = [...p.teams].sort()
-      .map(t => (p.team_logos && p.team_logos[t]) || '')
-      .filter(Boolean)
-      .slice(0, 3);
+    // team logo(s) -- one per (team, year)-accurate resolution, same as the live card
+    const logos = playerLogoUrls(p);
     const images = await Promise.all(logos.map(loadImageSafe));
     const validImages = images.filter(Boolean);
     if (validImages.length) {
-      const logoSize = 44, logoGap = 8;
-      const totalW = validImages.length * logoSize + (validImages.length - 1) * logoGap;
-      let lx = cx - totalW / 2;
-      const ly = cardY + 46;
-      for (const img of validImages) {
-        ctx.drawImage(img, lx, ly, logoSize, logoSize);
-        lx += logoSize + logoGap;
+      const maxRowWidth = cardW - 24;
+      let logoSize = 44, logoGap = 8;
+      while (logoSize > 18 && (validImages.length * logoSize + (validImages.length - 1) * logoGap) > maxRowWidth) {
+        logoSize -= 2;
+      }
+      const perRow = Math.max(1, Math.floor((maxRowWidth + logoGap) / (logoSize + logoGap)));
+      const rows = [];
+      for (let i = 0; i < validImages.length; i += perRow) rows.push(validImages.slice(i, i + perRow));
+      const rowH = logoSize + 6;
+      let ly = cardY + 46 - (rows.length - 1) * rowH / 2;
+      for (const row of rows) {
+        const rowW = row.length * logoSize + (row.length - 1) * logoGap;
+        let lx = cx - rowW / 2;
+        for (const img of row) {
+          ctx.drawImage(img, lx, ly, logoSize, logoSize);
+          lx += logoSize + logoGap;
+        }
+        ly += rowH;
       }
     }
 
