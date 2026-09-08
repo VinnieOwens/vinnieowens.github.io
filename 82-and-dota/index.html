@@ -2789,7 +2789,7 @@ function renderPlayerBreakdown(player, pieId, listId, totalId, percentileId, rar
   contributions.forEach((v, i) => {
     const decayPct = Math.pow(0.5, i) * 100;
     total += v.contribution;
-    const logo = (player.team_logos && player.team_logos[v.team]) || '';
+    const logo = resolveLogoForYear(v.team, v.year);
     const row = document.createElement('div');
     row.className = 'breakdown-row';
     row.innerHTML = `
