@@ -586,6 +586,13 @@ h1 {
   color: #211c30;
   line-height: 1;
   white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.card:hover .card-logo-years,
+.roster-card:hover .card-logo-years {
+  opacity: 1;
 }
 
 .card-name {
@@ -2418,29 +2425,26 @@ async function buildShareImage(rosterObj, total, rating, mode) {
     ctx.font = "700 14px 'Rajdhani', sans-serif";
     ctx.fillText(p.tier.toUpperCase(), cx, cardY + 32);
 
-    // team logo(s) -- one per (team, year)-accurate resolution, same as the live card, each with its year range underneath
-    const logoEntries = playerLogoEntries(p);
-    const loadedEntries = await Promise.all(logoEntries.map(async e => ({ img: await loadImageSafe(e.url), years: e.years })));
-    const validEntries = loadedEntries.filter(e => e.img);
-    if (validEntries.length) {
+    // team logo(s) -- one per (team, year)-accurate resolution, same as the live card
+    const logoUrls = playerLogoEntries(p).map(e => e.url);
+    const images = await Promise.all(logoUrls.map(loadImageSafe));
+    const validImages = images.filter(Boolean);
+    if (validImages.length) {
       const maxRowWidth = cardW - 24;
       let logoSize = 44, logoGap = 8;
-      while (logoSize > 18 && (validEntries.length * logoSize + (validEntries.length - 1) * logoGap) > maxRowWidth) {
+      while (logoSize > 18 && (validImages.length * logoSize + (validImages.length - 1) * logoGap) > maxRowWidth) {
         logoSize -= 2;
       }
       const perRow = Math.max(1, Math.floor((maxRowWidth + logoGap) / (logoSize + logoGap)));
       const rows = [];
-      for (let i = 0; i < validEntries.length; i += perRow) rows.push(validEntries.slice(i, i + perRow));
-      const rowH = logoSize + 20;
+      for (let i = 0; i < validImages.length; i += perRow) rows.push(validImages.slice(i, i + perRow));
+      const rowH = logoSize + 6;
       let ly = cardY + 46 - (rows.length - 1) * rowH / 2;
       for (const row of rows) {
         const rowW = row.length * logoSize + (row.length - 1) * logoGap;
         let lx = cx - rowW / 2;
-        for (const entry of row) {
-          ctx.drawImage(entry.img, lx, ly, logoSize, logoSize);
-          ctx.fillStyle = '#211c30';
-          ctx.font = "600 12px 'Rajdhani', sans-serif";
-          ctx.fillText(formatYearsLabel(entry.years), lx + logoSize / 2, ly + logoSize + 13);
+        for (const img of row) {
+          ctx.drawImage(img, lx, ly, logoSize, logoSize);
           lx += logoSize + logoGap;
         }
         ly += rowH;
