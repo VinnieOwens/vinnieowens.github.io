@@ -2176,6 +2176,19 @@ function drawRoundedRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+// Canvas drawImage(img, x, y, w, h) always stretches to fill exactly
+// that box, unlike CSS object-fit:contain which the live page's <img>
+// tags use -- so any non-square team logo gets visibly squished. This
+// mirrors object-fit:contain: scales to fit within the box and centers
+// it, letterboxed, so nothing gets stretched out of proportion.
+function drawImageContain(ctx, img, boxX, boxY, boxSize) {
+  const iw = img.naturalWidth || img.width || boxSize;
+  const ih = img.naturalHeight || img.height || boxSize;
+  const scale = Math.min(boxSize / iw, boxSize / ih);
+  const w = iw * scale, h = ih * scale;
+  ctx.drawImage(img, boxX + (boxSize - w) / 2, boxY + (boxSize - h) / 2, w, h);
+}
+
 function loadImageSafe(src) {
   return new Promise((resolve) => {
     if (!src) { resolve(null); return; }
@@ -2389,8 +2402,8 @@ async function buildShareImage(rosterObj, total, rating, mode) {
 
     // Pass 4: logos and text, on top of everything.
     rivalryLayouts.forEach(({ winImg, loseImg, titleText, subText, pillX, pillY, pillW, pillH }) => {
-      if (winImg) ctx.drawImage(winImg, pillX + 8, pillY + pillH / 2 - 16, 32, 32);
-      if (loseImg) ctx.drawImage(loseImg, pillX + pillW - 40, pillY + pillH / 2 - 16, 32, 32);
+      if (winImg) drawImageContain(ctx, winImg, pillX + 8, pillY + pillH / 2 - 16, 32);
+      if (loseImg) drawImageContain(ctx, loseImg, pillX + pillW - 40, pillY + pillH / 2 - 16, 32);
 
       const textCenterX = pillX + pillW / 2;
       ctx.textAlign = 'center';
@@ -2444,7 +2457,7 @@ async function buildShareImage(rosterObj, total, rating, mode) {
         const rowW = row.length * logoSize + (row.length - 1) * logoGap;
         let lx = cx - rowW / 2;
         for (const img of row) {
-          ctx.drawImage(img, lx, ly, logoSize, logoSize);
+          drawImageContain(ctx, img, lx, ly, logoSize);
           lx += logoSize + logoGap;
         }
         ly += rowH;
@@ -2551,7 +2564,7 @@ async function buildShareImage(rosterObj, total, rating, mode) {
         const logoSize = imgs.length > 1 ? 22 : 32;
         let ly = pillY + pillH / 2 - (imgs.length > 1 ? imgs.length * logoSize / 2 : logoSize / 2);
         imgs.forEach(img => {
-          ctx.drawImage(img, pillX + 12, ly, logoSize, logoSize);
+          drawImageContain(ctx, img, pillX + 12, ly, logoSize);
           ly += logoSize;
         });
       }
