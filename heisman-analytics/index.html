@@ -37,10 +37,6 @@ body { background: var(--bg); }
 
 a { color: var(--accent); }
 
-/* Same fixed desert scene as the portfolio home page. */
-.scene-bg { position: fixed; inset: 0; z-index: 0; }
-.scene-bg svg { display: block; width: 100%; height: 100%; }
-
 .page {
   position: relative;
   z-index: 2;
@@ -311,6 +307,35 @@ p:last-child { margin-bottom: 0; }
 .callouts.amber li { border-left-color: var(--amber); background: rgba(217, 130, 43, 0.12); }
 .callouts.blue li { border-left-color: var(--blue); background: rgba(42, 127, 158, 0.1); }
 
+/* ---------- Franchise toggle block ---------- */
+.fr-block {
+  margin-top: 30px;
+  padding-top: 26px;
+  border-top: 1.5px dashed var(--border);
+}
+.fr-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin: 18px 0 16px;
+}
+.fr-fig { margin: 0; text-align: center; }
+.fr-fig img {
+  display: block;
+  width: 100%;
+  max-width: 390px;
+  height: auto;
+  margin: 0 auto;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.fr-fig figcaption {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+.fr-fig figcaption strong { font-family: 'IBM Plex Mono', monospace; color: var(--text); }
+
 /* ---------- Takeaways ---------- */
 .grid-2 {
   display: grid;
@@ -462,7 +487,7 @@ dialog img {
 @media (max-width: 820px) {
   .stats { grid-template-columns: repeat(2, 1fr); }
   .tabpanel { grid-template-columns: 1fr; }
-  .grid-2, .try { grid-template-columns: 1fr; }
+  .grid-2, .try, .fr-grid { grid-template-columns: 1fr; }
   .split { grid-template-columns: 1fr; }
   .split .shot-btn img { max-width: 230px; margin: 0 auto; }
 }
@@ -480,23 +505,6 @@ dialog img {
 </style>
 </head>
 <body>
-
-<div class="scene-bg" aria-hidden="true">
-  <svg viewBox="0 0 1200 900" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax slice">
-    <defs>
-      <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#f7ead0"/>
-        <stop offset="100%" stop-color="#eda36a"/>
-      </linearGradient>
-    </defs>
-    <rect x="0" y="0" width="1200" height="900" fill="url(#skyGrad)"/>
-    <circle cx="860" cy="170" r="110" fill="#f7c66b" opacity="0.35"/>
-    <circle cx="860" cy="170" r="62" fill="#f4b942"/>
-    <path d="M0,780 C150,750 300,790 450,765 C600,740 750,780 900,755 C1000,740 1100,765 1200,750 L1200,900 L0,900 Z" fill="#e2915a"/>
-    <path d="M0,820 C180,795 350,830 520,805 C700,780 850,820 1000,800 C1080,790 1150,810 1200,800 L1200,900 L0,900 Z" fill="#c96f3d"/>
-    <path d="M0,860 C200,840 400,870 600,850 C800,830 950,865 1200,845 L1200,900 L0,900 Z" fill="#a8481f"/>
-  </svg>
-</div>
 
 <main class="page">
 
@@ -578,7 +586,7 @@ dialog img {
 
     <div class="panel view" id="insights">
       <div class="view-head"><span class="num">03</span><h3>Insights</h3></div>
-      <p class="cap" style="margin-top:0;margin-bottom:16px">Everything on one page and cross-highlighting. The <strong>left half</strong> follows the <em>NFL Only / NFL + Other</em> toggle. The <strong>right half</strong> is always all 90 winners. Pick a state:</p>
+      <p class="cap" style="margin-top:0;margin-bottom:16px">Everything on one page and cross-highlighting. The <strong>left half</strong> follows the <em>NFL Only / NFL + Other</em> toggle. The <strong>right half</strong> is always all 90 winners, and its franchise chart has a separate <em>Played for / Drafted by</em> toggle (<a href="#franchise-toggle">more on that below</a>). Pick a state:</p>
 
       <div class="tabs" role="tablist" aria-label="Insights page states">
         <button class="tab" role="tab" id="tab-nfl" aria-controls="panel-nfl" aria-selected="true" type="button">NFL Only</button>
@@ -649,6 +657,27 @@ dialog img {
           </ul>
         </div>
       </div>
+
+      <div class="fr-block" id="franchise-toggle">
+        <h3>Played for vs Drafted by</h3>
+        <p>The franchise chart has its own toggle, separate from the amber and blue one. It asks the same question two ways. <strong>Played for</strong> counts winners who had at least one season with a franchise. <strong>Drafted by</strong> counts winners the franchise selected in the NFL, AFL or AAFC draft, whether or not they ever played there. The bars, the title and the footnote all switch together, and the chart always shows all 32 teams in their team colors.</p>
+        <div class="fr-grid">
+          <figure class="fr-fig">
+            <img src="img/franchise-played-for.png" width="378" height="354" loading="lazy" alt="Franchise bar chart in Played for mode: Las Vegas Raiders 12, Detroit Lions 11, Cleveland Browns 9, Los Angeles Rams 9">
+            <figcaption><strong>Played for</strong>: who actually suited up</figcaption>
+          </figure>
+          <figure class="fr-fig">
+            <img src="img/franchise-drafted-by.png" width="387" height="356" loading="lazy" alt="Franchise bar chart in Drafted by mode: Detroit Lions 10, Los Angeles Rams 9, Tennessee Titans 6, Washington Commanders 6">
+            <figcaption><strong>Drafted by</strong>: who picked them</figcaption>
+          </figure>
+        </div>
+        <ul class="callouts">
+          <li><strong>Raiders:</strong> 12 winners played for them, but they only drafted 5. The gap is winners who got there after starting somewhere else.</li>
+          <li><strong>Lions:</strong> the most picks (10), and 11 winners played there, so they barely move between views.</li>
+          <li><strong>Texans, Dolphins, Seahawks:</strong> none has drafted a Heisman winner (0 in this view), yet winners have played for all three.</li>
+          <li><strong>Both views cross-highlight:</strong> click a college or position and the bars show just that group, in either mode.</li>
+        </ul>
+      </div>
     </div>
   </section>
 
@@ -680,8 +709,8 @@ dialog img {
       </article>
       <article class="take">
         <div class="big">12 vs 5</div>
-        <h3>Where they play isn't where they're picked</h3>
-        <p>Twelve Heisman winners played for the Raiders, but the franchise has only drafted five. The Lions are the other way around: most picks (10), with 11 who suited up.</p>
+        <h3>Where they play isn't always where they're picked</h3>
+        <p>Flip the franchise chart from Played for to Drafted by and the Raiders fall from 12 winners to 5. The Lions barely move: the most picks (10), with 11 who suited up.</p>
       </article>
       <article class="take">
         <div class="big">90% vs 81%</div>
