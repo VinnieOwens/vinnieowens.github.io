@@ -133,6 +133,39 @@ html, body {
   margin-top: 6px;
 }
 
+/* Card with two links: the whole card opens the showcase page (stretched
+   link), and the repo link sits above it so it stays separately clickable. */
+.project-multi {
+  position: relative;
+}
+
+.project-main {
+  color: inherit;
+  text-decoration: none;
+}
+
+.project-main::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+}
+
+.project-repo {
+  position: relative;
+  z-index: 1;
+  display: inline-block;
+  margin-top: 10px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.75rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.project-repo:hover {
+  text-decoration: underline;
+}
+
 .project-placeholder {
   padding: 20px 22px;
   border: 1.5px dashed var(--border);
@@ -185,6 +218,14 @@ footer {
       </div>
       <div class="project-desc">Draft a 5-man roster from Dota's TI history, using real data provided by Liquipedia.com. Can your team claim the Aegis of Champions?</div>
     </a>
+    <div class="project project-multi">
+      <div class="project-top">
+        <a class="project-name project-main" href="/heisman-analytics/">Heisman Analytics</a>
+        <span class="project-status">live</span>
+      </div>
+      <div class="project-desc">Every Heisman winner's college and pro career, mapped season by season in an interactive Power BI report. Video walkthrough and full repo.</div>
+      <a class="project-repo" href="https://github.com/VinnieOwens/heisman-analytics">view repo on GitHub &#8599;</a>
+    </div>
     <div class="project-placeholder">More on the way.</div>
   </div>
 
